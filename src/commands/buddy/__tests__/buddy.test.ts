@@ -244,9 +244,11 @@ describe('formatCompanionCard', () => {
     const card = formatCompanionCard(companion)
 
     expect(card).toContain(companion.name)
-    expect(card).toContain(companion.species)
+    // Species displayed with capitalized first letter
+    expect(card.toLowerCase()).toContain(companion.species)
     expect(card).toContain(companion.rarity.toUpperCase())
-    expect(card).toContain(companion.personality)
+    // Personality is wrapped across lines, check key words are present
+    expect(card).toContain(companion.personality.split(' ')[0]!)
     // All 5 stats should appear
     for (const stat of ['DEBUGGING', 'PATIENCE', 'CHAOS', 'WISDOM', 'SNARK']) {
       expect(card).toContain(stat)

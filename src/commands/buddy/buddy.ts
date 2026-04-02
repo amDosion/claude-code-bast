@@ -128,31 +128,73 @@ export function rehatchCompanion(): Companion {
 
 // ─── Card Formatting ─────────────────────────────────────────
 
+// Box-drawing card width (inner content width)
+const CARD_W = 38
+
+function padLine(text: string, width: number): string {
+  const len = [...text].length // rough visible length
+  return text + ' '.repeat(Math.max(0, width - len))
+}
+
+function wrapText(text: string, width: number): string[] {
+  const words = text.split(' ')
+  const lines: string[] = []
+  let cur = ''
+  for (const w of words) {
+    if (cur.length + w.length + 1 > width && cur) {
+      lines.push(cur)
+      cur = w
+    } else {
+      cur = cur ? `${cur} ${w}` : w
+    }
+  }
+  if (cur) lines.push(cur)
+  return lines
+}
+
+function boxCard(contentLines: string[]): string {
+  const top = `╭${'─'.repeat(CARD_W)}╮`
+  const bot = `╰${'─'.repeat(CARD_W)}╯`
+  const empty = `│${' '.repeat(CARD_W)}│`
+  const body = contentLines.map(l => `│  ${padLine(l, CARD_W - 2)}│`)
+  return [top, empty, ...body, empty, bot].join('\n')
+}
+
 export function formatCompanionCard(companion: Companion): string {
   const stars = RARITY_STARS[companion.rarity]
   const sprite = renderSprite(companion, 0)
   const shinyTag = companion.shiny ? ' ✨ SHINY' : ''
+  const speciesLabel = companion.species.charAt(0).toUpperCase() + companion.species.slice(1)
 
-  const lines = [
+  // Header: ★★ UNCOMMON              MUSHROOM
+  const rarityLeft = `${stars} ${companion.rarity.toUpperCase()}${shinyTag}`
+  const headerGap = Math.max(1, CARD_W - 4 - rarityLeft.length - speciesLabel.length)
+  const header = `${rarityLeft}${' '.repeat(headerGap)}${speciesLabel}`
+
+  // Personality wrapped in quotes
+  const personalityLines = wrapText(`"${companion.personality}"`, CARD_W - 4)
+
+  // Stats
+  const statLines = STAT_NAMES.map(stat => {
+    const val = companion.stats[stat]
+    const filled = Math.floor(val / 10)
+    const bar = '█'.repeat(filled) + '░'.repeat(10 - filled)
+    return `${stat.padEnd(12)}${bar}  ${val}`
+  })
+
+  const content = [
+    header,
     '',
     ...sprite,
     '',
-    `  ${companion.name}`,
-    `  ${companion.species} · ${companion.rarity.toUpperCase()} ${stars}${shinyTag}`,
+    companion.name,
     '',
-    `  ${companion.personality}`,
+    ...personalityLines,
     '',
-    ...STAT_NAMES.map(stat => {
-      const val = companion.stats[stat]
-      const filled = Math.floor(val / 10)
-      const bar = '█'.repeat(filled) + '░'.repeat(10 - filled)
-      return `  ${stat.padEnd(12)} ${bar} ${val}`
-    }),
-    '',
-    `  ${companion.name} is here · it'll chime in as you code`,
-    `  say its name to get its take · /buddy pet · /buddy off`,
+    ...statLines,
   ]
-  return lines.join('\n')
+
+  return boxCard(content)
 }
 
 export function formatHatchMessage(companion: Companion): string {
