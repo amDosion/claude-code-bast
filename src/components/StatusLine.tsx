@@ -26,12 +26,13 @@ import { getRuntimeMainLoopModel, type ModelName, renderModelName } from '../uti
 import { getCurrentSessionTitle } from '../utils/sessionStorage.js';
 import { doesMostRecentAssistantMessageExceed200k, getCurrentUsage } from '../utils/tokens.js';
 import { getCurrentWorktreeSession } from '../utils/worktree.js';
+import { BuiltinStatusLine } from './BuiltinStatusLine.js';
 import { isVimModeEnabled } from './PromptInput/utils.js';
 export function statusLineShouldDisplay(settings: ReadonlySettings): boolean {
   // Assistant mode: statusline fields (model, permission mode, cwd) reflect the
   // REPL/daemon process, not what the agent child is actually running. Hide it.
   if (feature('KAIROS') && getKairosActive()) return false;
-  return settings?.statusLine !== undefined;
+  return true;
 }
 function buildStatusLineCommandInput(permissionMode: PermissionMode, exceeds200kTokens: boolean, settings: ReadonlySettings, messages: Message[], addedDirs: string[], mainLoopModel: ModelName, vimMode?: VimMode): StatusLineCommandInput {
   const agentType = getMainThreadAgentType();
@@ -136,6 +137,60 @@ export function getLastAssistantMessageId(messages: Message[]): string | null {
   return getLastAssistantMessage(messages)?.uuid ?? null;
 }
 function StatusLineInner({
+  messagesRef,
+  lastAssistantMessageId,
+  vimMode
+}: Props): React.ReactNode {
+  const settings = useSettings();
+
+  if (settings?.statusLine) {
+    // External command path — all existing logic lives in ExternalStatusLine
+    return <ExternalStatusLine
+      messagesRef={messagesRef}
+      lastAssistantMessageId={lastAssistantMessageId}
+      vimMode={vimMode}
+    />;
+  }
+
+  // Built-in path
+  return <BuiltinStatusLineWrapper
+    messagesRef={messagesRef}
+    lastAssistantMessageId={lastAssistantMessageId}
+  />;
+}
+
+function BuiltinStatusLineWrapper({ messagesRef, lastAssistantMessageId }: {
+  messagesRef: React.RefObject<Message[]>;
+  lastAssistantMessageId: string | null;
+}): React.ReactNode {
+  const mainLoopModel = useMainLoopModel();
+  const permissionMode = useAppState(s => s.toolPermissionContext.mode);
+
+  // Compute exceeds200k only when message changes
+  const exceeds200kTokens = lastAssistantMessageId
+    ? doesMostRecentAssistantMessageExceed200k(messagesRef.current)
+    : false;
+
+  const runtimeModel = getRuntimeMainLoopModel({ permissionMode, mainLoopModel, exceeds200kTokens });
+  const modelDisplay = renderModelName(runtimeModel);
+  const currentUsage = getCurrentUsage(messagesRef.current);
+  const contextWindowSize = getContextWindowForModel(runtimeModel, getSdkBetas());
+  const contextPercentages = calculateContextPercentages(currentUsage, contextWindowSize);
+  const rawUtil = getRawUtilization();
+  const totalCost = getTotalCost();
+  const usedTokens = getTotalInputTokens() + getTotalOutputTokens();
+
+  return <BuiltinStatusLine
+    modelName={modelDisplay}
+    contextUsedPct={contextPercentages.used}
+    usedTokens={usedTokens}
+    contextWindowSize={contextWindowSize}
+    totalCostUsd={totalCost}
+    rateLimits={rawUtil}
+  />;
+}
+
+function ExternalStatusLine({
   messagesRef,
   lastAssistantMessageId,
   vimMode
