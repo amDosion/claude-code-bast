@@ -4,7 +4,7 @@
  * Phase 1: local-only soul generation (no remote API / model calls).
  */
 import type { ToolUseContext } from '../../Tool.js'
-import { getCompanion, companionUserId, roll } from '../../buddy/companion.js'
+import { getCompanion, companionUserId, roll, rollWithSeed, generateSeed } from '../../buddy/companion.js'
 import { renderSprite } from '../../buddy/sprites.js'
 import {
   RARITY_STARS,
@@ -111,6 +111,21 @@ export function hatchCompanion(): Companion {
   return { ...bones, ...soul, hatchedAt }
 }
 
+export function rehatchCompanion(): Companion {
+  const seed = generateSeed()
+  const { bones, inspirationSeed } = rollWithSeed(seed)
+  const soul = buildLocalSoul(bones, inspirationSeed)
+  const hatchedAt = Date.now()
+
+  saveGlobalConfig(current => ({
+    ...current,
+    companion: { name: soul.name, personality: soul.personality, seed, hatchedAt },
+    companionMuted: false,
+  }))
+
+  return { ...bones, ...soul, seed, hatchedAt }
+}
+
 // ─── Card Formatting ─────────────────────────────────────────
 
 export function formatCompanionCard(companion: Companion): string {
@@ -158,13 +173,15 @@ export async function call(
   const subcommand = (args ?? '').trim().toLowerCase()
 
   switch (subcommand) {
-    case 'off': {
+    case 'off':
+    case 'mute': {
       saveGlobalConfig(current => ({ ...current, companionMuted: true }))
       onDone('companion muted', { display: 'system' })
       return null
     }
 
-    case 'on': {
+    case 'on':
+    case 'unmute': {
       saveGlobalConfig(current => ({ ...current, companionMuted: false }))
       onDone('companion unmuted', { display: 'system' })
       return null
@@ -185,6 +202,22 @@ export async function call(
       return null
     }
 
+    case 'hatch': {
+      if (getCompanion()) {
+        onDone('you already have a companion · use /buddy to see it, or /buddy rehatch to re-roll', { display: 'system' })
+        return null
+      }
+      const companion = hatchCompanion()
+      onDone(formatHatchMessage(companion), { display: 'system' })
+      return null
+    }
+
+    case 'rehatch': {
+      const companion = rehatchCompanion()
+      onDone(formatHatchMessage(companion), { display: 'system' })
+      return null
+    }
+
     case '': {
       // No args: hatch or show
       const existing = getCompanion()
@@ -198,7 +231,7 @@ export async function call(
     }
 
     default: {
-      onDone('usage: /buddy [pet|off|on]', { display: 'system' })
+      onDone('usage: /buddy [pet|off|on|hatch|rehatch]', { display: 'system' })
       return null
     }
   }

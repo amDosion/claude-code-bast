@@ -3,7 +3,7 @@ import { getGlobalConfig, saveGlobalConfig } from '../../../utils/config.js'
 import { getCompanion, roll } from '../../../buddy/companion.js'
 
 // buddy.ts is pure logic — no bun:bundle or heavy deps, so direct import works.
-const { call, hatchCompanion, buildLocalSoul, formatCompanionCard } =
+const { call, hatchCompanion, rehatchCompanion, buildLocalSoul, formatCompanionCard } =
   await import('../buddy.js')
 
 // Reset config before each test (NODE_ENV=test uses in-memory object)
@@ -155,6 +155,52 @@ describe('/buddy command', () => {
 
     await call(fn, context, 'pet')
 
+    expect(getGlobalConfig().companionMuted).toBe(false)
+  })
+
+  test('/buddy hatch with no companion hatches', async () => {
+    const { fn, calls } = createOnDone()
+    const { context } = createContext()
+
+    await call(fn, context, 'hatch')
+
+    expect(getGlobalConfig().companion).toBeDefined()
+    expect(calls[0]!.result).toContain('hatching a coding buddy')
+  })
+
+  test('/buddy hatch with existing companion shows hint', async () => {
+    hatchCompanion()
+    const { fn, calls } = createOnDone()
+    const { context } = createContext()
+
+    await call(fn, context, 'hatch')
+
+    expect(calls[0]!.result).toContain('already have a companion')
+  })
+
+  test('/buddy rehatch replaces existing companion', async () => {
+    hatchCompanion()
+    const first = getGlobalConfig().companion!
+
+    const { fn, calls } = createOnDone()
+    const { context } = createContext()
+    await call(fn, context, 'rehatch')
+
+    const second = getGlobalConfig().companion!
+    expect(second.hatchedAt).toBeGreaterThanOrEqual(first.hatchedAt)
+    expect(second.seed).toBeTruthy()
+    expect(calls[0]!.result).toContain('hatching a coding buddy')
+  })
+
+  test('/buddy mute and unmute work as aliases', async () => {
+    const { fn: fn1 } = createOnDone()
+    const { context: ctx1 } = createContext()
+    await call(fn1, ctx1, 'mute')
+    expect(getGlobalConfig().companionMuted).toBe(true)
+
+    const { fn: fn2 } = createOnDone()
+    const { context: ctx2 } = createContext()
+    await call(fn2, ctx2, 'unmute')
     expect(getGlobalConfig().companionMuted).toBe(false)
   })
 

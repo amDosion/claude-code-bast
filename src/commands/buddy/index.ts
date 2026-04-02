@@ -9,7 +9,7 @@ const buddy = {
   type: 'local-jsx',
   name: 'buddy',
   description: 'Hatch a coding companion · pet, off',
-  argumentHint: '[pet|off|on]',
+  argumentHint: '[pet|off|on|hatch|rehatch]',
   immediate: true,
   get isHidden() {
     return !isBuddyLive()
