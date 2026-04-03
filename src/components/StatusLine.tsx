@@ -33,13 +33,13 @@ function StatusLineInner({ messagesRef, lastAssistantMessageId }: Props): React.
   const mainLoopModel = useMainLoopModel();
   const permissionMode = useAppState(s => s.toolPermissionContext.mode);
 
-  const exceeds200kTokens = lastAssistantMessageId
-    ? doesMostRecentAssistantMessageExceed200k(messagesRef.current)
-    : false;
+  const messages = messagesRef.current ?? [];
+
+  const exceeds200kTokens = lastAssistantMessageId ? doesMostRecentAssistantMessageExceed200k(messages) : false;
 
   const runtimeModel = getRuntimeMainLoopModel({ permissionMode, mainLoopModel, exceeds200kTokens });
   const modelDisplay = renderModelName(runtimeModel);
-  const currentUsage = getCurrentUsage(messagesRef.current);
+  const currentUsage = getCurrentUsage(messages);
   const contextWindowSize = getContextWindowForModel(runtimeModel, getSdkBetas());
   const contextPercentages = calculateContextPercentages(currentUsage, contextWindowSize);
   const rawUtil = getRawUtilization();
