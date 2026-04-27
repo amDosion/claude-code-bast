@@ -3,7 +3,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import type { Message } from '../../types/message.js'
+import type { Message } from 'src/types/message.js'
 import {
   compactMailboxMessages,
   getLastPeerDmSummary,
@@ -19,7 +19,7 @@ import {
   readMailbox,
   type TeammateMessage,
   writeToMailbox,
-} from '../teammateMailbox.js'
+} from 'src/utils/teammateMailbox.js'
 
 let tempHome = ''
 let previousConfigDir: string | undefined
@@ -54,21 +54,6 @@ async function readRawMailbox(
   const content = await readFile(getInboxPath(agentName, teamName), 'utf-8')
   return JSON.parse(content) as TeammateMessage[]
 }
-
-beforeEach(() => {
-  previousConfigDir = process.env.CLAUDE_CONFIG_DIR
-  tempHome = mkdtempSync(join(tmpdir(), 'teammate-mailbox-'))
-  process.env.CLAUDE_CONFIG_DIR = tempHome
-})
-
-afterEach(async () => {
-  if (previousConfigDir === undefined) {
-    delete process.env.CLAUDE_CONFIG_DIR
-  } else {
-    process.env.CLAUDE_CONFIG_DIR = previousConfigDir
-  }
-  await rm(tempHome, { recursive: true, force: true })
-})
 
 describe('compactMailboxMessages', () => {
   test('prioritizes unread messages and keeps only recent read history', () => {
@@ -178,6 +163,22 @@ describe('compactMailboxMessages', () => {
 })
 
 describe('teammate mailbox retention', () => {
+  beforeEach(() => {
+    previousConfigDir = process.env.CLAUDE_CONFIG_DIR
+    tempHome = mkdtempSync(join(tmpdir(), 'teammate-mailbox-'))
+    process.env.CLAUDE_CONFIG_DIR = tempHome
+  })
+
+  afterEach(async () => {
+    if (previousConfigDir === undefined) {
+      delete process.env.CLAUDE_CONFIG_DIR
+    } else {
+      process.env.CLAUDE_CONFIG_DIR = previousConfigDir
+    }
+    await rm(tempHome, { recursive: true, force: true })
+    tempHome = ''
+  })
+
   test('writeToMailbox compacts oversized unread inbox files', async () => {
     const existing = Array.from(
       { length: MAX_MAILBOX_MESSAGES + 20 },

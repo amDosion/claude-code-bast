@@ -1,4 +1,4 @@
-import { createHash } from 'crypto'
+import { createHash } from 'node:crypto'
 import type { Message } from '../../types/message.js'
 
 export const MAX_SUMMARY_CONTEXT_MESSAGES = 120

@@ -11,17 +11,18 @@
  */
 
 import type { TaskContext } from '../../Task.js'
+import { randomUUID, type UUID } from 'node:crypto'
 import { isPoorModeActive } from '../../commands/poor/poorMode.js'
 import { updateAgentSummary } from '../../tasks/LocalAgentTask/LocalAgentTask.js'
-import { filterIncompleteToolCalls } from '@claude-code-best/builtin-tools/tools/AgentTool/runAgent.js'
+import { filterIncompleteToolCalls } from '@claude-code-best/builtin-tools/tools/AgentTool/filterIncompleteToolCalls.js'
 import type { AgentId } from '../../types/ids.js'
+import type { UserMessage } from '../../types/message.js'
 import { logForDebugging } from '../../utils/debug.js'
 import {
   type CacheSafeParams,
   runForkedAgent,
 } from '../../utils/forkedAgent.js'
 import { logError } from '../../utils/log.js'
-import { createUserMessage } from '../../utils/messages.js'
 import { getAgentTranscript } from '../../utils/sessionStorage.js'
 import {
   getSummaryContextFingerprint,
@@ -46,6 +47,20 @@ Bad (past tense): "Analyzed the branch diff"
 Bad (too vague): "Investigating the issue"
 Bad (too long): "Reviewing full branch diff and AgentTool.tsx integration"
 Bad (branch name): "Analyzed adam/background-summary branch diff"`
+}
+
+function createSummaryPromptMessage(content: string): UserMessage {
+  // Why: createUserMessage pulls in the full message utility graph; the
+  // summarizer only needs the minimal UserMessage shape for runForkedAgent.
+  return {
+    type: 'user',
+    message: {
+      role: 'user',
+      content,
+    },
+    uuid: randomUUID() as UUID,
+    timestamp: new Date().toISOString(),
+  }
 }
 
 export function startAgentSummarization(
@@ -139,7 +154,7 @@ export function startAgentSummarization(
       // onCacheSafeParams time). No explicit override needed.
       const result = await runForkedAgent({
         promptMessages: [
-          createUserMessage({ content: buildSummaryPrompt(previousSummary) }),
+          createSummaryPromptMessage(buildSummaryPrompt(previousSummary)),
         ],
         cacheSafeParams: forkParams,
         canUseTool,

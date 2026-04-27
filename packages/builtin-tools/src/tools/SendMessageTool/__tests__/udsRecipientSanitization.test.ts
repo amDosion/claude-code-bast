@@ -12,6 +12,7 @@ describe('SendMessageTool UDS recipient handling', () => {
     SendMessageTool.backfillObservableInput!(observableInput)
 
     expect(observableInput.recipient).toBe('uds:/tmp/peer.sock')
+    expect(observableInput.to).toBe('uds:/tmp/peer.sock#token=')
     expect(JSON.stringify(observableInput)).not.toContain('secret-token')
     expect(
       SendMessageTool.toAutoClassifierInput({
@@ -35,7 +36,7 @@ describe('SendMessageTool UDS recipient handling', () => {
 
     SendMessageTool.backfillObservableInput!(observableInput)
 
-    expect(observableInput.to).toBe('uds:/tmp/peer.sock')
+    expect(observableInput.to).toBe('uds:/tmp/peer.sock#token=')
     expect(observableInput.recipient).toBe('uds:/tmp/peer.sock')
     expect(observableInput.type).toBe('plan_approval_response')
     expect(observableInput.request_id).toBe('req-1')
@@ -53,6 +54,37 @@ describe('SendMessageTool UDS recipient handling', () => {
       throw new Error('expected validation to reject redacted inline UDS token')
     }
     expect(result.message).toContain('inline auth tokens')
+  })
+
+  test('keeps inline-token rejection when observable input is cloned', async () => {
+    const { SendMessageTool } = await import('../SendMessageTool.js')
+    const observableInput = {
+      to: 'uds:/tmp/peer.sock#token=secret-token',
+      message: 'hello',
+    } as Record<string, unknown>
+
+    SendMessageTool.backfillObservableInput!(observableInput)
+    const clonedInput = {
+      to: observableInput.to,
+      message: observableInput.message,
+      summary: 'hello peer',
+    }
+
+    const validation = await SendMessageTool.validateInput!(
+      clonedInput as never,
+      {} as never,
+    )
+    const result = await SendMessageTool.call(
+      clonedInput as never,
+      {} as never,
+      undefined as never,
+      undefined as never,
+    )
+
+    expect(validation.result).toBe(false)
+    expect(result.data.success).toBe(false)
+    expect(JSON.stringify(clonedInput)).not.toContain('secret-token')
+    expect(JSON.stringify(result)).not.toContain('secret-token')
   })
 
   test('redacts UDS tokens in structured classifier text', async () => {
@@ -75,6 +107,28 @@ describe('SendMessageTool UDS recipient handling', () => {
         },
       }),
     ).toBe('plan_approval approve to uds:/tmp/peer.sock')
+  })
+
+  test('redacts from the first inline UDS token marker', async () => {
+    const { SendMessageTool } = await import('../SendMessageTool.js')
+    const tokenAddress = 'uds:/tmp/peer.sock#token=first#token=second'
+
+    const observableInput = {
+      to: tokenAddress,
+      message: 'hello',
+    } as Record<string, unknown>
+    SendMessageTool.backfillObservableInput!(observableInput)
+
+    expect(observableInput.to).toBe('uds:/tmp/peer.sock#token=')
+    expect(observableInput.recipient).toBe('uds:/tmp/peer.sock')
+    expect(JSON.stringify(observableInput)).not.toContain('first')
+    expect(JSON.stringify(observableInput)).not.toContain('second')
+    expect(
+      SendMessageTool.toAutoClassifierInput({
+        to: tokenAddress,
+        message: 'hello',
+      }),
+    ).toBe('to uds:/tmp/peer.sock: hello')
   })
 
   test('rejects inline UDS tokens during validation', async () => {
