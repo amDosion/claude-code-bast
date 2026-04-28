@@ -10,9 +10,10 @@ import type { Message } from '../types/message.js'
 import { getCwd } from '../utils/cwd.js'
 import { getCronJitterConfig } from '../utils/cronJitterConfig.js'
 import { createCronScheduler } from '../utils/cronScheduler.js'
-import { removeCronTasks } from '../utils/cronTasks.js'
-import { createAutonomyQueuedPrompt } from '../utils/autonomyRuns.js'
+import { removeCronTasks, type CronTask } from '../utils/cronTasks.js'
 import {
+  createAutonomyQueuedPrompt,
+  createAutonomyQueuedPromptIfNoActiveSource,
   markAutonomyRunCancelled,
   markAutonomyRunFailed,
 } from '../utils/autonomyRuns.js'
@@ -20,6 +21,7 @@ import { logForDebugging } from '../utils/debug.js'
 import { enqueuePendingNotification } from '../utils/messageQueueManager.js'
 import { createScheduledTaskFireMessage } from '../utils/messages.js'
 import { WORKLOAD_CRON } from '../utils/workloadContext.js'
+import type { QueuedCommand } from '../types/textInputTypes.js'
 
 type Props = {
   isLoading: boolean
@@ -33,6 +35,32 @@ type Props = {
    */
   assistantMode?: boolean
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>
+}
+
+export async function createScheduledTaskQueuedCommand(
+  task: Pick<CronTask, 'id' | 'prompt'>,
+  options?: {
+    rootDir?: string
+    currentDir?: string
+    shouldCreate?: () => boolean
+  },
+): Promise<QueuedCommand | null> {
+  const command = await createAutonomyQueuedPromptIfNoActiveSource({
+    basePrompt: task.prompt,
+    trigger: 'scheduled-task',
+    rootDir: options?.rootDir,
+    currentDir: options?.currentDir ?? getCwd(),
+    sourceId: task.id,
+    sourceLabel: task.prompt,
+    workload: WORKLOAD_CRON,
+    shouldCreate: options?.shouldCreate,
+  })
+  if (!command) {
+    logForDebugging(
+      `[ScheduledTasks] skipping ${task.id}: previous run still queued or running`,
+    )
+  }
+  return command
 }
 
 /**
@@ -118,15 +146,10 @@ export function useScheduledTasks({
               store.getState().tasks,
             )
             if (teammate && !isTerminalTaskStatus(teammate.status)) {
-              const command = await createAutonomyQueuedPrompt({
-                basePrompt: task.prompt,
-                trigger: 'scheduled-task',
-                currentDir: getCwd(),
-                sourceId: task.id,
-                sourceLabel: task.prompt,
-                workload: WORKLOAD_CRON,
-                shouldCreate: () => !disposed,
-              })
+              const command = await createScheduledTaskQueuedCommand(
+                task,
+                { shouldCreate: () => !disposed },
+              )
               if (!command) {
                 return
               }
@@ -166,15 +189,10 @@ export function useScheduledTasks({
             return
           }
 
-          const command = await createAutonomyQueuedPrompt({
-            basePrompt: task.prompt,
-            trigger: 'scheduled-task',
-            currentDir: getCwd(),
-            sourceId: task.id,
-            sourceLabel: task.prompt,
-            workload: WORKLOAD_CRON,
-            shouldCreate: () => !disposed,
-          })
+          const command = await createScheduledTaskQueuedCommand(
+            task,
+            { shouldCreate: () => !disposed },
+          )
           if (!command) {
             return
           }

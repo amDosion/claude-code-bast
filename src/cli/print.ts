@@ -323,6 +323,7 @@ import { asSessionId } from 'src/types/ids.js'
 import {
   commitAutonomyQueuedPrompt,
   createAutonomyQueuedPrompt,
+  createAutonomyQueuedPromptIfNoActiveSource,
   createProactiveAutonomyCommands,
   markAutonomyRunCancelled,
   markAutonomyRunFailed,
@@ -2863,19 +2864,16 @@ function runHeadlessStreaming(
         if (inputClosed) return
         void (async () => {
           if (task.agentId) {
-            const prepared = await prepareAutonomyTurnPrompt({
+            const command = await createAutonomyQueuedPromptIfNoActiveSource({
               basePrompt: task.prompt,
               trigger: 'scheduled-task',
-              currentDir: cwd(),
-            })
-            if (inputClosed) return
-            const command = await commitAutonomyQueuedPrompt({
-              prepared,
               currentDir: cwd(),
               sourceId: task.id,
               sourceLabel: task.prompt,
               workload: WORKLOAD_CRON,
+              shouldCreate: () => !inputClosed,
             })
+            if (!command) return
             if (inputClosed) {
               await markAutonomyRunCancelled(
                 command.autonomy!.runId,
@@ -2890,19 +2888,16 @@ function runHeadlessStreaming(
             )
             return
           }
-          const prepared = await prepareAutonomyTurnPrompt({
+          const command = await createAutonomyQueuedPromptIfNoActiveSource({
             basePrompt: task.prompt,
             trigger: 'scheduled-task',
-            currentDir: cwd(),
-          })
-          if (inputClosed) return
-          const command = await commitAutonomyQueuedPrompt({
-            prepared,
             currentDir: cwd(),
             sourceId: task.id,
             sourceLabel: task.prompt,
             workload: WORKLOAD_CRON,
+            shouldCreate: () => !inputClosed,
           })
+          if (!command) return
           if (inputClosed) {
             await markAutonomyRunCancelled(
               command.autonomy!.runId,

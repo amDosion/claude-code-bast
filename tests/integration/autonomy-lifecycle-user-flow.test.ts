@@ -26,9 +26,12 @@ async function runAutonomyCli(args: string[]): Promise<string> {
     env: {
       ...process.env,
       CLAUDE_CONFIG_DIR: configDir,
+      CI: 'true',
+      GITHUB_ACTIONS: 'true',
       NODE_ENV: 'development',
       NO_COLOR: '1',
     },
+    stdin: 'ignore',
     stdout: 'pipe',
     stderr: 'pipe',
   })

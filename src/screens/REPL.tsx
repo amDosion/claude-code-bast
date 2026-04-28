@@ -3053,18 +3053,19 @@ export function REPL({
               setMessages(old => {
                 const postBoundary = getMessagesAfterCompactBoundary(old, {
                   includeSnipped: true,
-                })
+                });
                 // Hard cap: keep at most 500 messages in fullscreen scrollback
                 // to prevent unbounded memory growth in multi-day sessions.
                 // normalizeMessages/applyGrouping are O(n), and Ink fiber
                 // trees cost ~250KB RSS per message. Without this cap,
                 // scrollback after several compactions can reach thousands
                 // of messages (observed: 13k+, 1GB+ heap).
-                const MAX_FULLSCREEN_SCROLLBACK = 500
-                const kept = postBoundary.length > MAX_FULLSCREEN_SCROLLBACK
-                  ? postBoundary.slice(-MAX_FULLSCREEN_SCROLLBACK)
-                  : postBoundary
-                return [...kept, newMessage]
+                const MAX_FULLSCREEN_SCROLLBACK = 500;
+                const kept =
+                  postBoundary.length > MAX_FULLSCREEN_SCROLLBACK
+                    ? postBoundary.slice(-MAX_FULLSCREEN_SCROLLBACK)
+                    : postBoundary;
+                return [...kept, newMessage];
               });
             } else {
               setMessages(() => [newMessage]);
@@ -3097,13 +3098,10 @@ export function REPL({
               // so interleaved non-ephemeral messages caused duplicate progress
               // entries to accumulate (observed 13k+ entries in sleep-heavy sessions).
               for (let i = oldMessages.length - 1; i >= 0; i--) {
-                const m = oldMessages[i]!
-                if (m.type !== 'progress') break
-                const mData = m.data as Record<string, unknown> | undefined
-                if (
-                  m.parentToolUseID === newMessage.parentToolUseID &&
-                  mData?.type === newData.type
-                ) {
+                const m = oldMessages[i]!;
+                if (m.type !== 'progress') break;
+                const mData = m.data as Record<string, unknown> | undefined;
+                if (m.parentToolUseID === newMessage.parentToolUseID && mData?.type === newData.type) {
                   const copy = oldMessages.slice();
                   copy[i] = newMessage;
                   return copy;

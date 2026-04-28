@@ -83,6 +83,20 @@ export type AutonomyFlowRecord = {
   waitJson?: AutonomyFlowWaitState
   cancelRequestedAt?: number
   lastError?: string
+  /**
+   * Repo-relative POSIX glob patterns describing which paths this flow's
+   * `report`-step approval covers. The pre-tool-use hook
+   * `require-plan-for-risky-edit.mjs` consults this list to permit edits
+   * only when the target file matches at least one entry. Absent or empty
+   * means "no boundary declared" — during the pilot window the hook
+   * treats this as broad approval (v1 behaviour). Once all production
+   * flows declare boundaries, the hook will deny absent-boundary flows.
+   *
+   * Supported syntax: `*` matches one path segment, `**` matches any
+   * number including zero. Examples: `src/utils/autonomy*`,
+   * `src/services/api/**`, `src/Tool.ts`.
+   */
+  boundary?: string[]
 }
 
 type AutonomyFlowsFile = {
@@ -138,6 +152,7 @@ function cloneWaitState(
 function cloneFlowRecord(flow: AutonomyFlowRecord): AutonomyFlowRecord {
   return {
     ...flow,
+    ...(flow.boundary ? { boundary: [...flow.boundary] } : {}),
     ...(flow.stateJson ? { stateJson: cloneManagedState(flow.stateJson) } : {}),
     ...(flow.waitJson ? { waitJson: cloneWaitState(flow.waitJson) } : {}),
   }
@@ -256,6 +271,35 @@ function normalizeWaitState(value: unknown): AutonomyFlowWaitState | undefined {
   }
 }
 
+function isPosixBoundaryGlob(value: string): boolean {
+  if (!value || value.startsWith('/') || value.includes('\\')) {
+    return false
+  }
+  if (value.includes('\0')) {
+    return false
+  }
+  return !value.split('/').some(segment => segment === '..')
+}
+
+function normalizeBoundary(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined
+  }
+  const seen = new Set<string>()
+  const boundary = value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map(entry => entry.trim())
+    .filter(isPosixBoundaryGlob)
+    .filter(entry => {
+      if (seen.has(entry)) {
+        return false
+      }
+      seen.add(entry)
+      return true
+    })
+  return boundary.length > 0 ? boundary : undefined
+}
+
 function normalizeFlowRecord(flow: AutonomyFlowRecord): AutonomyFlowRecord {
   const source = defaultFlowSource(flow)
   return {
@@ -266,6 +310,7 @@ function normalizeFlowRecord(flow: AutonomyFlowRecord): AutonomyFlowRecord {
     goal: flow.goal || flow.sourceLabel || flow.sourceId || flow.flowKey,
     currentDir: flow.currentDir || flow.rootDir,
     runCount: Math.max(flow.runCount ?? 0, 0),
+    boundary: normalizeBoundary(flow.boundary),
     stateJson: normalizeManagedState(flow.stateJson),
     waitJson: normalizeWaitState(flow.waitJson),
     ...(flow.sourceId
@@ -435,6 +480,7 @@ export async function startManagedAutonomyFlow(params: {
   ownerKey?: string
   sourceId?: string
   sourceLabel?: string
+  boundary?: string[]
   nowMs?: number
 }): Promise<ManagedAutonomyFlowStartResult | null> {
   if (params.steps.length === 0) {
@@ -465,6 +511,8 @@ export async function startManagedAutonomyFlow(params: {
 
     const stateJson = buildManagedState(params.steps)
     const firstStep = stateJson.steps[0]!
+    const boundary =
+      normalizeBoundary(params.boundary) ?? normalizeBoundary(current?.boundary)
     const waiting =
       firstStep.waitFor != null
         ? {
@@ -489,6 +537,7 @@ export async function startManagedAutonomyFlow(params: {
       currentDir,
       ...(source.sourceId ? { sourceId: source.sourceId } : {}),
       ...(source.sourceLabel ? { sourceLabel: source.sourceLabel } : {}),
+      ...(boundary ? { boundary } : {}),
       latestRunId: undefined,
       runCount: current?.runCount ?? 0,
       createdAt: current?.createdAt ?? nowMs,

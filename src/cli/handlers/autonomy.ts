@@ -35,6 +35,18 @@ export function parseAutonomyLimit(raw?: string | number): number {
   return Math.min(parsed, 50)
 }
 
+function writeStdout(text: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    process.stdout.write(text, error => {
+      if (error) {
+        reject(error)
+        return
+      }
+      resolve()
+    })
+  })
+}
+
 export async function getAutonomyStatusText(options?: {
   deep?: boolean
 }): Promise<string> {
@@ -71,7 +83,7 @@ export async function getAutonomyDeepSectionText(
 export async function autonomyStatusHandler(options?: {
   deep?: boolean
 }): Promise<void> {
-  process.stdout.write(`${await getAutonomyStatusText(options)}\n`)
+  await writeStdout(`${await getAutonomyStatusText(options)}\n`)
 }
 
 export async function getAutonomyRunsText(
@@ -86,7 +98,7 @@ export async function getAutonomyRunsText(
 export async function autonomyRunsHandler(
   limit?: string | number,
 ): Promise<void> {
-  process.stdout.write(`${await getAutonomyRunsText(limit)}\n`)
+  await writeStdout(`${await getAutonomyRunsText(limit)}\n`)
 }
 
 export async function getAutonomyFlowsText(
@@ -101,7 +113,7 @@ export async function getAutonomyFlowsText(
 export async function autonomyFlowsHandler(
   limit?: string | number,
 ): Promise<void> {
-  process.stdout.write(`${await getAutonomyFlowsText(limit)}\n`)
+  await writeStdout(`${await getAutonomyFlowsText(limit)}\n`)
 }
 
 export async function getAutonomyFlowText(flowId: string): Promise<string> {
@@ -109,7 +121,7 @@ export async function getAutonomyFlowText(flowId: string): Promise<string> {
 }
 
 export async function autonomyFlowHandler(flowId: string): Promise<void> {
-  process.stdout.write(`${await getAutonomyFlowText(flowId)}\n`)
+  await writeStdout(`${await getAutonomyFlowText(flowId)}\n`)
 }
 
 export async function cancelAutonomyFlowText(
@@ -151,7 +163,7 @@ export async function cancelAutonomyFlowText(
 }
 
 export async function autonomyFlowCancelHandler(flowId: string): Promise<void> {
-  process.stdout.write(`${await cancelAutonomyFlowText(flowId)}\n`)
+  await writeStdout(`${await cancelAutonomyFlowText(flowId)}\n`)
 }
 
 export async function resumeAutonomyFlowText(
@@ -181,7 +193,7 @@ export async function resumeAutonomyFlowText(
 }
 
 export async function autonomyFlowResumeHandler(flowId: string): Promise<void> {
-  process.stdout.write(`${await resumeAutonomyFlowText(flowId)}\n`)
+  await writeStdout(`${await resumeAutonomyFlowText(flowId)}\n`)
 }
 
 export async function getAutonomyCommandText(
