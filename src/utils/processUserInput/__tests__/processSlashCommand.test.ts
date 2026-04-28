@@ -22,6 +22,7 @@ let runAgentBlocker: Promise<void> | null = null
 let releaseRunAgentBlocker: (() => void) | null = null
 let runAgentStartCount = 0
 let originalNodeEnv: string | undefined
+let originalAnthropicApiKey: string | undefined
 
 function holdRunAgent(): void {
   runAgentBlocker = new Promise(resolve => {
@@ -37,43 +38,6 @@ function releaseRunAgent(): void {
 
 mock.module('bun:bundle', () => ({
   feature: (name: string) => name === 'KAIROS',
-}))
-
-mock.module('src/commands.js', () => ({
-  builtInCommandNames: () => new Set(['forked']),
-  clearCommandsCache: () => {},
-  findCommand: (commandName: string, commands: any[]) =>
-    commands.find(
-      command =>
-        command.name === commandName ||
-        command.userFacingName?.() === commandName ||
-        command.aliases?.includes(commandName),
-    ),
-  getCommand: (commandName: string, commands: any[]) => {
-    const command = commands.find(
-      command =>
-        command.name === commandName ||
-        command.userFacingName?.() === commandName ||
-        command.aliases?.includes(commandName),
-    )
-    if (!command) {
-      throw new ReferenceError(`Command ${commandName} not found`)
-    }
-    return command
-  },
-  getCommandName: (command: { name: string; userFacingName?: () => string }) =>
-    command.userFacingName?.() ?? command.name,
-  getCommands: async () => [],
-  getMcpSkillCommands: async () => [],
-  getSlashCommandToolSkills: async () => [],
-  getSkillToolCommands: async () => [],
-  hasCommand: (commandName: string, commands: any[]) =>
-    commands.some(
-      command =>
-        command.name === commandName ||
-        command.userFacingName?.() === commandName ||
-        command.aliases?.includes(commandName),
-    ),
 }))
 
 mock.module(
@@ -158,7 +122,9 @@ async function waitForRunAgentStarts(expected: number): Promise<void> {
 beforeEach(async () => {
   tempDir = await createTempDir('process-slash-command-')
   originalNodeEnv = process.env.NODE_ENV
+  originalAnthropicApiKey = process.env.ANTHROPIC_API_KEY
   process.env.NODE_ENV = 'test'
+  process.env.ANTHROPIC_API_KEY = 'test-key'
   runAgentBlocker = null
   releaseRunAgentBlocker = null
   runAgentStartCount = 0
@@ -176,6 +142,11 @@ afterEach(async () => {
     delete process.env.NODE_ENV
   } else {
     process.env.NODE_ENV = originalNodeEnv
+  }
+  if (originalAnthropicApiKey === undefined) {
+    delete process.env.ANTHROPIC_API_KEY
+  } else {
+    process.env.ANTHROPIC_API_KEY = originalAnthropicApiKey
   }
   resetStateForTests()
   resetAutonomyAuthorityForTests()
