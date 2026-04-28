@@ -83,6 +83,20 @@ export type AutonomyFlowRecord = {
   waitJson?: AutonomyFlowWaitState
   cancelRequestedAt?: number
   lastError?: string
+  /**
+   * Repo-relative POSIX glob patterns describing which paths this flow's
+   * `report`-step approval covers. The pre-tool-use hook
+   * `require-plan-for-risky-edit.mjs` consults this list to permit edits
+   * only when the target file matches at least one entry. Absent or empty
+   * means "no boundary declared" — during the pilot window the hook
+   * treats this as broad approval (v1 behaviour). Once all production
+   * flows declare boundaries, the hook will deny absent-boundary flows.
+   *
+   * Supported syntax: `*` matches one path segment, `**` matches any
+   * number including zero. Examples: `src/utils/autonomy*`,
+   * `src/services/api/**`, `src/Tool.ts`.
+   */
+  boundary?: string[]
 }
 
 type AutonomyFlowsFile = {
