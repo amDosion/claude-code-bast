@@ -8,13 +8,16 @@ import {
   setProjectRoot,
 } from '../../bootstrap/state'
 import {
+  createAutonomyRun,
   formatAutonomyRunsList,
   formatAutonomyRunsStatus,
   listAutonomyRuns,
   createAutonomyQueuedPrompt,
   createProactiveAutonomyCommands,
   finalizeAutonomyRunCompleted,
+  getAutonomyRunById,
   markAutonomyRunCompleted,
+  markAutonomyRunCancelled,
   markAutonomyRunFailed,
   markAutonomyRunRunning,
   recoverManagedAutonomyFlowPrompt,
@@ -118,7 +121,7 @@ describe('autonomyRuns', () => {
     expect(command!.value).toContain('nested authority')
   })
 
-  test('markAutonomyRunRunning/completed/failed update persisted lifecycle state for plain runs', async () => {
+  test('markAutonomyRunRunning/completed update persisted lifecycle state for plain runs', async () => {
     const command = await createAutonomyQueuedPrompt({
       basePrompt: '<tick>12:00:00</tick>',
       trigger: 'proactive-tick',
@@ -143,15 +146,59 @@ describe('autonomyRuns', () => {
       status: 'completed',
       endedAt: 200,
     })
+  })
 
+  test('markAutonomyRunFailed updates a non-terminal run', async () => {
+    const command = await createAutonomyQueuedPrompt({
+      basePrompt: '<tick>12:00:00</tick>',
+      trigger: 'proactive-tick',
+      rootDir: tempDir,
+      currentDir: tempDir,
+    })
+    expect(command).not.toBeNull()
+    const runId = command!.autonomy!.runId
+
+    await markAutonomyRunRunning(runId, tempDir, 100)
     await markAutonomyRunFailed(runId, 'boom', tempDir, 300)
-    runs = await listAutonomyRuns(tempDir)
+    const runs = await listAutonomyRuns(tempDir)
+
     expect(runs[0]).toMatchObject({
       runId,
       status: 'failed',
       endedAt: 300,
       error: 'boom',
     })
+  })
+
+  test('terminal runs are not revived by stale lifecycle updates', async () => {
+    const command = await createAutonomyQueuedPrompt({
+      basePrompt: 'scheduled prompt',
+      trigger: 'scheduled-task',
+      rootDir: tempDir,
+      currentDir: tempDir,
+    })
+    expect(command).not.toBeNull()
+    const runId = command!.autonomy!.runId
+
+    await markAutonomyRunCancelled(runId, tempDir, 100)
+    const revived = await markAutonomyRunRunning(runId, tempDir, 200)
+    const completed = await markAutonomyRunCompleted(runId, tempDir, 300)
+    const failed = await markAutonomyRunFailed(
+      runId,
+      'late failure',
+      tempDir,
+      400,
+    )
+    const persisted = await getAutonomyRunById(runId, tempDir)
+
+    expect(revived).toBeNull()
+    expect(completed).toBeNull()
+    expect(failed).toBeNull()
+    expect(persisted).toMatchObject({
+      status: 'cancelled',
+      endedAt: 100,
+    })
+    expect(persisted!.error).toBeUndefined()
   })
 
   test('formatters produce readable status and run listings', async () => {
@@ -221,6 +268,53 @@ describe('autonomyRuns', () => {
     expect(new Set(runs.map(run => run.sourceId))).toEqual(
       new Set(['cron-1', 'cron-2']),
     )
+  })
+
+  test('persistence pruning keeps active runs ahead of recent completed history', async () => {
+    const runs = [
+      {
+        runId: 'old-active',
+        runtime: 'automatic',
+        trigger: 'scheduled-task',
+        status: 'queued',
+        rootDir: tempDir,
+        currentDir: tempDir,
+        ownerKey: 'main-thread',
+        promptPreview: 'old active',
+        createdAt: 1,
+      },
+      ...Array.from({ length: 200 }, (_, index) => ({
+        runId: `history-${index}`,
+        runtime: 'automatic',
+        trigger: 'scheduled-task',
+        status: 'completed',
+        rootDir: tempDir,
+        currentDir: tempDir,
+        ownerKey: 'main-thread',
+        promptPreview: `history ${index}`,
+        createdAt: 1_000 + index,
+        endedAt: 2_000 + index,
+      })),
+    ]
+    await mkdir(join(tempDir, AUTONOMY_DIR), { recursive: true })
+    await writeFile(
+      resolveAutonomyRunsPath(tempDir),
+      `${JSON.stringify({ runs }, null, 2)}\n`,
+      'utf-8',
+    )
+
+    await createAutonomyRun({
+      trigger: 'scheduled-task',
+      prompt: 'fresh active',
+      rootDir: tempDir,
+      currentDir: tempDir,
+      nowMs: 9_999,
+    })
+
+    const persisted = await listAutonomyRuns(tempDir)
+    expect(persisted).toHaveLength(200)
+    expect(persisted.some(run => run.runId === 'old-active')).toBe(true)
+    expect(persisted.some(run => run.runId === 'history-0')).toBe(false)
   })
 
   test('listAutonomyRuns keeps older persisted records by normalizing missing runtime and owner metadata', async () => {

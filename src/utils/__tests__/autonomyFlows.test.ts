@@ -191,6 +191,64 @@ describe('listAutonomyFlows', () => {
     const flows = await listAutonomyFlows(tempDir)
     expect(flows).toEqual([])
   })
+
+  test('persistence pruning keeps active flows ahead of recent terminal history', async () => {
+    const flows: AutonomyFlowRecord[] = [
+      {
+        flowId: 'old-active',
+        flowKey: 'managed:scheduled-task:old-active',
+        syncMode: 'managed',
+        ownerKey: DEFAULT_AUTONOMY_OWNER_KEY,
+        revision: 1,
+        trigger: 'scheduled-task',
+        status: 'queued',
+        goal: 'old active',
+        rootDir: tempDir,
+        currentDir: tempDir,
+        runCount: 0,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      ...Array.from({ length: 100 }, (_, index) => ({
+        flowId: `history-${index}`,
+        flowKey: `managed:scheduled-task:history-${index}`,
+        syncMode: 'managed' as const,
+        ownerKey: DEFAULT_AUTONOMY_OWNER_KEY,
+        revision: 1,
+        trigger: 'scheduled-task' as const,
+        status: 'succeeded' as const,
+        goal: `history ${index}`,
+        rootDir: tempDir,
+        currentDir: tempDir,
+        runCount: 1,
+        createdAt: 1_000 + index,
+        updatedAt: 1_000 + index,
+        endedAt: 2_000 + index,
+      })),
+    ]
+    const flowsPath = resolveAutonomyFlowsPath(tempDir)
+    await mkdir(join(tempDir, AUTONOMY_DIR), { recursive: true })
+    await writeFile(
+      flowsPath,
+      `${JSON.stringify({ flows }, null, 2)}\n`,
+      'utf-8',
+    )
+
+    await startManagedAutonomyFlow({
+      trigger: 'scheduled-task',
+      goal: 'fresh active',
+      steps: TWO_STEPS,
+      rootDir: tempDir,
+      currentDir: tempDir,
+      sourceId: 'fresh-active',
+      nowMs: 9_999,
+    })
+
+    const persisted = await listAutonomyFlows(tempDir)
+    expect(persisted).toHaveLength(100)
+    expect(persisted.some(flow => flow.flowId === 'old-active')).toBe(true)
+    expect(persisted.some(flow => flow.flowId === 'history-0')).toBe(false)
+  })
 })
 
 describe('startManagedAutonomyFlow', () => {

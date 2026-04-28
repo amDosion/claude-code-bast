@@ -95,6 +95,29 @@ function cloneRunRecord(run: AutonomyRunRecord): AutonomyRunRecord {
   return { ...run }
 }
 
+function isAutonomyRunActive(run: AutonomyRunRecord): boolean {
+  return run.status === 'queued' || run.status === 'running'
+}
+
+function selectPersistedAutonomyRuns(
+  runs: AutonomyRunRecord[],
+): AutonomyRunRecord[] {
+  const retained = runs
+    .slice()
+    .map(cloneRunRecord)
+    .sort((left, right) => {
+      const leftActive = isAutonomyRunActive(left)
+      const rightActive = isAutonomyRunActive(right)
+      if (leftActive !== rightActive) {
+        return leftActive ? -1 : 1
+      }
+      return right.createdAt - left.createdAt
+    })
+    .slice(0, AUTONOMY_RUNS_MAX)
+
+  return retained.sort((left, right) => right.createdAt - left.createdAt)
+}
+
 function normalizePersistedRunRecord(
   run: PersistedAutonomyRunRecord,
 ): AutonomyRunRecord {
@@ -157,11 +180,7 @@ async function writeAutonomyRuns(
     path,
     `${JSON.stringify(
       {
-        runs: runs
-          .slice()
-          .map(cloneRunRecord)
-          .sort((left, right) => right.createdAt - left.createdAt)
-          .slice(0, AUTONOMY_RUNS_MAX),
+        runs: selectPersistedAutonomyRuns(runs),
       } satisfies AutonomyRunsFile,
       null,
       2,
@@ -172,7 +191,7 @@ async function writeAutonomyRuns(
 
 async function updateAutonomyRun(
   runId: string,
-  updater: (current: AutonomyRunRecord) => AutonomyRunRecord,
+  updater: (current: AutonomyRunRecord) => AutonomyRunRecord | null,
   rootDir: string = getProjectRoot(),
 ): Promise<AutonomyRunRecord | null> {
   return withAutonomyPersistenceLock(rootDir, async () => {
@@ -181,7 +200,11 @@ async function updateAutonomyRun(
     if (index === -1) {
       return null
     }
-    const updated = cloneRunRecord(updater(cloneRunRecord(runs[index]!)))
+    const next = updater(cloneRunRecord(runs[index]!))
+    if (!next) {
+      return null
+    }
+    const updated = cloneRunRecord(next)
     runs[index] = updated
     await writeAutonomyRuns(runs, rootDir)
     return updated
@@ -336,6 +359,7 @@ async function createOrRecoverManagedFlowStepCommand(params: {
         workload: params.workload,
         autonomy: {
           runId: run.runId,
+          rootDir: run.rootDir,
           trigger: 'managed-flow-step',
           sourceId: run.sourceId,
           sourceLabel: run.sourceLabel,
@@ -426,11 +450,14 @@ export async function markAutonomyRunRunning(
 ): Promise<AutonomyRunRecord | null> {
   const updated = await updateAutonomyRun(
     runId,
-    current => ({
-      ...current,
-      status: 'running',
-      startedAt: nowMs ?? Date.now(),
-    }),
+    current =>
+      current.status === 'queued'
+        ? {
+            ...current,
+            status: 'running',
+            startedAt: nowMs ?? Date.now(),
+          }
+        : null,
     rootDir,
   )
   if (updated?.parentFlowId && updated.parentFlowSyncMode === 'managed') {
@@ -451,12 +478,15 @@ export async function markAutonomyRunCompleted(
 ): Promise<AutonomyRunRecord | null> {
   const updated = await updateAutonomyRun(
     runId,
-    current => ({
-      ...current,
-      status: 'completed',
-      endedAt: nowMs ?? Date.now(),
-      error: undefined,
-    }),
+    current =>
+      current.status === 'queued' || current.status === 'running'
+        ? {
+            ...current,
+            status: 'completed',
+            endedAt: nowMs ?? Date.now(),
+            error: undefined,
+          }
+        : null,
     rootDir,
   )
   if (updated?.parentFlowId && updated.parentFlowSyncMode === 'managed') {
@@ -478,12 +508,15 @@ export async function markAutonomyRunFailed(
 ): Promise<AutonomyRunRecord | null> {
   const updated = await updateAutonomyRun(
     runId,
-    current => ({
-      ...current,
-      status: 'failed',
-      endedAt: nowMs ?? Date.now(),
-      error,
-    }),
+    current =>
+      current.status === 'queued' || current.status === 'running'
+        ? {
+            ...current,
+            status: 'failed',
+            endedAt: nowMs ?? Date.now(),
+            error,
+          }
+        : null,
     rootDir,
   )
   if (updated?.parentFlowId && updated.parentFlowSyncMode === 'managed') {
@@ -505,12 +538,15 @@ export async function markAutonomyRunCancelled(
 ): Promise<AutonomyRunRecord | null> {
   const updated = await updateAutonomyRun(
     runId,
-    current => ({
-      ...current,
-      status: 'cancelled',
-      endedAt: nowMs ?? Date.now(),
-      error: undefined,
-    }),
+    current =>
+      current.status === 'queued' || current.status === 'running'
+        ? {
+            ...current,
+            status: 'cancelled',
+            endedAt: nowMs ?? Date.now(),
+            error: undefined,
+          }
+        : null,
     rootDir,
   )
   if (updated?.parentFlowId && updated.parentFlowSyncMode === 'managed') {
@@ -683,6 +719,7 @@ export async function commitAutonomyQueuedPrompt(params: {
     workload: params.workload,
     autonomy: {
       runId: run.runId,
+      rootDir: run.rootDir,
       trigger: params.prepared.trigger,
       sourceId: params.sourceId,
       sourceLabel: params.sourceLabel,

@@ -79,10 +79,9 @@ import { isEnvTruthy } from '../utils/envUtils.js';
 import { formatTokens, truncateToWidth } from '../utils/format.js';
 import { consumeEarlyInput } from '../utils/earlyInput.js';
 import {
-  finalizeAutonomyRunCompleted,
-  finalizeAutonomyRunFailed,
-  markAutonomyRunRunning,
-} from '../utils/autonomyRuns.js';
+  claimConsumableQueuedAutonomyCommands,
+  finalizeAutonomyCommandsForTurn,
+} from '../utils/autonomyQueueLifecycle.js';
 
 import { setMemberActive } from '../utils/swarm/teamHelpers.js';
 import {
@@ -4844,44 +4843,44 @@ export function REPL({
             } satisfies QueuedCommand)
           : input;
 
-      const newAbortController = createAbortController();
-      setAbortController(newAbortController);
+      void (async () => {
+        const claim = await claimConsumableQueuedAutonomyCommands([queuedCommand]);
+        const command = claim.attachmentCommands[0];
+        if (!command) return;
 
-      // Create a user message with the formatted content (includes XML wrapper)
-      const userMessage = createUserMessage({
-        content: queuedCommand.value as string,
-        isMeta: queuedCommand.isMeta ? true : undefined,
-        origin: queuedCommand.origin,
-      });
+        const newAbortController = createAbortController();
+        setAbortController(newAbortController);
 
-      const autonomyRunId = queuedCommand.autonomy?.runId;
-      if (autonomyRunId) {
-        void markAutonomyRunRunning(autonomyRunId);
-      }
-
-      void onQuery([userMessage], newAbortController, true, [], mainLoopModel)
-        .then(() => {
-          if (autonomyRunId) {
-            void finalizeAutonomyRunCompleted({
-              runId: autonomyRunId,
-              currentDir: getCwd(),
-              priority: 'later',
-            }).then(nextCommands => {
-              for (const command of nextCommands) {
-                enqueue(command);
-              }
-            });
-          }
-        })
-        .catch((error: unknown) => {
-          if (autonomyRunId) {
-            void finalizeAutonomyRunFailed({
-              runId: autonomyRunId,
-              error: String(error),
-            });
-          }
-          logError(toError(error));
+        // Create a user message with the formatted content (includes XML wrapper)
+        const userMessage = createUserMessage({
+          content: command.value as string,
+          isMeta: command.isMeta ? true : undefined,
+          origin: command.origin,
         });
+
+        try {
+          await onQuery([userMessage], newAbortController, true, [], mainLoopModel);
+          const nextCommands = await finalizeAutonomyCommandsForTurn({
+            commands: claim.claimedCommands,
+            outcome: { type: 'completed' },
+            currentDir: getCwd(),
+            priority: 'later',
+          });
+          for (const nextCommand of nextCommands) {
+            enqueue(nextCommand);
+          }
+        } catch (error: unknown) {
+          await finalizeAutonomyCommandsForTurn({
+            commands: claim.claimedCommands,
+            outcome: { type: 'failed', error },
+            currentDir: getCwd(),
+            priority: 'later',
+          });
+          logError(toError(error));
+        }
+      })().catch((error: unknown) => {
+        logError(toError(error));
+      });
       return true;
     },
     [onQuery, mainLoopModel, store],

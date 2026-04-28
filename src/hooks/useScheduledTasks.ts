@@ -12,7 +12,10 @@ import { getCronJitterConfig } from '../utils/cronJitterConfig.js'
 import { createCronScheduler } from '../utils/cronScheduler.js'
 import { removeCronTasks } from '../utils/cronTasks.js'
 import { createAutonomyQueuedPrompt } from '../utils/autonomyRuns.js'
-import { markAutonomyRunFailed } from '../utils/autonomyRuns.js'
+import {
+  markAutonomyRunCancelled,
+  markAutonomyRunFailed,
+} from '../utils/autonomyRuns.js'
 import { logForDebugging } from '../utils/debug.js'
 import { enqueuePendingNotification } from '../utils/messageQueueManager.js'
 import { createScheduledTaskFireMessage } from '../utils/messages.js'
@@ -71,14 +74,23 @@ export function useScheduledTasks({
     // forward isMeta, so their messages remain visible in the
     // transcript. This is acceptable since normal mode is not the
     // primary use case for scheduled tasks.
+    let disposed = false
     const enqueueForLead = async (prompt: string) => {
       const command = await createAutonomyQueuedPrompt({
         basePrompt: prompt,
         trigger: 'scheduled-task',
         currentDir: getCwd(),
         workload: WORKLOAD_CRON,
+        shouldCreate: () => !disposed,
       })
       if (!command) {
+        return
+      }
+      if (disposed) {
+        await markAutonomyRunCancelled(
+          command.autonomy!.runId,
+          command.autonomy!.rootDir,
+        )
         return
       }
       enqueuePendingNotification(command)
@@ -90,7 +102,12 @@ export function useScheduledTasks({
       // which is populated from disk at scheduler startup — this path only
       // handles team-lead durable crons.
       onFire: prompt => {
-        void enqueueForLead(prompt)
+        void enqueueForLead(prompt).catch(error =>
+          logForDebugging(
+            `[ScheduledTasks] failed to enqueue missed task prompt: ${error}`,
+            { level: 'error' },
+          ),
+        )
       },
       // Normal fires receive the full CronTask so we can route by agentId.
       onFireTask: task => {
@@ -108,8 +125,16 @@ export function useScheduledTasks({
                 sourceId: task.id,
                 sourceLabel: task.prompt,
                 workload: WORKLOAD_CRON,
+                shouldCreate: () => !disposed,
               })
               if (!command) {
+                return
+              }
+              if (disposed) {
+                await markAutonomyRunCancelled(
+                  command.autonomy!.runId,
+                  command.autonomy!.rootDir,
+                )
                 return
               }
               const injected = injectUserMessageToTeammate(
@@ -117,6 +142,7 @@ export function useScheduledTasks({
                 command.value as string,
                 {
                   autonomyRunId: command.autonomy?.runId,
+                  autonomyRootDir: command.autonomy?.rootDir,
                   origin: command.origin,
                 },
                 setAppState,
@@ -125,6 +151,7 @@ export function useScheduledTasks({
                 await markAutonomyRunFailed(
                   command.autonomy.runId,
                   `Teammate ${task.agentId} exited before the scheduled message could be delivered.`,
+                  command.autonomy.rootDir,
                 )
               }
               return
@@ -146,8 +173,16 @@ export function useScheduledTasks({
             sourceId: task.id,
             sourceLabel: task.prompt,
             workload: WORKLOAD_CRON,
+            shouldCreate: () => !disposed,
           })
           if (!command) {
+            return
+          }
+          if (disposed) {
+            await markAutonomyRunCancelled(
+              command.autonomy!.runId,
+              command.autonomy!.rootDir,
+            )
             return
           }
 
@@ -156,7 +191,12 @@ export function useScheduledTasks({
           )
           setMessages(prev => [...prev, msg])
           enqueuePendingNotification(command)
-        })()
+        })().catch(error =>
+          logForDebugging(
+            `[ScheduledTasks] failed to enqueue task ${task.id}: ${error}`,
+            { level: 'error' },
+          ),
+        )
       },
       isLoading: () => isLoadingRef.current,
       assistantMode,
@@ -164,7 +204,10 @@ export function useScheduledTasks({
       isKilled: () => !isKairosCronEnabled(),
     })
     scheduler.start()
-    return () => scheduler.stop()
+    return () => {
+      disposed = true
+      scheduler.stop()
+    }
     // assistantMode is stable for the session lifetime; store/setAppState are
     // stable refs from useSyncExternalStore; setMessages is a stable useCallback.
     // eslint-disable-next-line react-hooks/exhaustive-deps

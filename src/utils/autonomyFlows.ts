@@ -152,6 +152,25 @@ function isManagedFlowStatusActive(status: AutonomyFlowStatus): boolean {
   )
 }
 
+function selectPersistedAutonomyFlows(
+  flows: AutonomyFlowRecord[],
+): AutonomyFlowRecord[] {
+  const retained = flows
+    .slice()
+    .map(cloneFlowRecord)
+    .sort((left, right) => {
+      const leftActive = isManagedFlowStatusActive(left.status)
+      const rightActive = isManagedFlowStatusActive(right.status)
+      if (leftActive !== rightActive) {
+        return leftActive ? -1 : 1
+      }
+      return right.updatedAt - left.updatedAt
+    })
+    .slice(0, AUTONOMY_FLOWS_MAX)
+
+  return retained.sort((left, right) => right.updatedAt - left.updatedAt)
+}
+
 function defaultFlowSource(params: {
   trigger: AutonomyTriggerKind
   sourceId?: string
@@ -369,11 +388,7 @@ async function writeAutonomyFlows(
     path,
     `${JSON.stringify(
       {
-        flows: flows
-          .slice()
-          .map(cloneFlowRecord)
-          .sort((left, right) => right.updatedAt - left.updatedAt)
-          .slice(0, AUTONOMY_FLOWS_MAX),
+        flows: selectPersistedAutonomyFlows(flows),
       } satisfies AutonomyFlowsFile,
       null,
       2,

@@ -132,7 +132,10 @@ export async function cancelAutonomyFlowText(
     removedCount = removed.length
     for (const command of removed) {
       if (command.autonomy?.runId) {
-        await markAutonomyRunCancelled(command.autonomy.runId)
+        await markAutonomyRunCancelled(
+          command.autonomy.runId,
+          command.autonomy.rootDir,
+        )
       }
     }
   } else {
