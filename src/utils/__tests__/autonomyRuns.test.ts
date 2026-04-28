@@ -12,8 +12,10 @@ import {
   formatAutonomyRunsStatus,
   listAutonomyRuns,
   createAutonomyQueuedPrompt,
+  createAutonomyQueuedPromptIfNoActiveSource,
   createProactiveAutonomyCommands,
   finalizeAutonomyRunCompleted,
+  hasActiveAutonomyRunForSource,
   markAutonomyRunCompleted,
   markAutonomyRunFailed,
   markAutonomyRunRunning,
@@ -95,7 +97,9 @@ describe('autonomyRuns', () => {
       ownerKey: 'main-thread',
       sourceId: 'cron-1',
       sourceLabel: 'nightly-report',
+      ownerProcessId: process.pid,
     })
+    expect(runs[0]?.ownerSessionId).toBeString()
     expect(flows).toHaveLength(0)
     expect(resolveAutonomyRunsPath(tempDir)).toContain('.claude')
   })
@@ -134,7 +138,9 @@ describe('autonomyRuns', () => {
       runId,
       status: 'running',
       startedAt: 100,
+      ownerProcessId: process.pid,
     })
+    expect(runs[0]?.ownerSessionId).toBeString()
 
     await markAutonomyRunCompleted(runId, tempDir, 200)
     runs = await listAutonomyRuns(tempDir)
@@ -151,6 +157,168 @@ describe('autonomyRuns', () => {
       status: 'failed',
       endedAt: 300,
       error: 'boom',
+    })
+  })
+
+  test('hasActiveAutonomyRunForSource only treats queued and running scheduled runs as active', async () => {
+    const command = await createAutonomyQueuedPrompt({
+      basePrompt: 'scheduled prompt',
+      trigger: 'scheduled-task',
+      rootDir: tempDir,
+      currentDir: tempDir,
+      sourceId: 'cron-1',
+      sourceLabel: 'nightly',
+    })
+    expect(command).not.toBeNull()
+    const runId = command!.autonomy!.runId
+
+    await expect(
+      hasActiveAutonomyRunForSource({
+        trigger: 'scheduled-task',
+        sourceId: 'cron-1',
+        rootDir: tempDir,
+      }),
+    ).resolves.toBe(true)
+
+    await markAutonomyRunRunning(runId, tempDir, 100)
+    await expect(
+      hasActiveAutonomyRunForSource({
+        trigger: 'scheduled-task',
+        sourceId: 'cron-1',
+        rootDir: tempDir,
+      }),
+    ).resolves.toBe(true)
+
+    await expect(
+      hasActiveAutonomyRunForSource({
+        trigger: 'scheduled-task',
+        sourceId: 'cron-2',
+        rootDir: tempDir,
+      }),
+    ).resolves.toBe(false)
+
+    await markAutonomyRunCompleted(runId, tempDir, 200)
+    await expect(
+      hasActiveAutonomyRunForSource({
+        trigger: 'scheduled-task',
+        sourceId: 'cron-1',
+        rootDir: tempDir,
+      }),
+    ).resolves.toBe(false)
+
+    const failedCommand = await createAutonomyQueuedPrompt({
+      basePrompt: 'scheduled prompt',
+      trigger: 'scheduled-task',
+      rootDir: tempDir,
+      currentDir: tempDir,
+      sourceId: 'cron-1',
+    })
+    expect(failedCommand).not.toBeNull()
+    await markAutonomyRunFailed(
+      failedCommand!.autonomy!.runId,
+      'boom',
+      tempDir,
+      300,
+    )
+    await expect(
+      hasActiveAutonomyRunForSource({
+        trigger: 'scheduled-task',
+        sourceId: 'cron-1',
+        rootDir: tempDir,
+      }),
+    ).resolves.toBe(false)
+  })
+
+  test('createAutonomyQueuedPromptIfNoActiveSource atomically skips duplicate active scheduled sources', async () => {
+    const [first, second] = await Promise.all([
+      createAutonomyQueuedPromptIfNoActiveSource({
+        basePrompt: 'scheduled prompt',
+        trigger: 'scheduled-task',
+        rootDir: tempDir,
+        currentDir: tempDir,
+        sourceId: 'cron-1',
+      }),
+      createAutonomyQueuedPromptIfNoActiveSource({
+        basePrompt: 'scheduled prompt',
+        trigger: 'scheduled-task',
+        rootDir: tempDir,
+        currentDir: tempDir,
+        sourceId: 'cron-1',
+      }),
+    ])
+
+    const created = [first, second].filter(command => command !== null)
+    const runs = await listAutonomyRuns(tempDir)
+
+    expect(created).toHaveLength(1)
+    expect(runs).toHaveLength(1)
+    expect(runs[0]).toMatchObject({
+      trigger: 'scheduled-task',
+      status: 'queued',
+      sourceId: 'cron-1',
+    })
+  })
+
+  test('createAutonomyQueuedPromptIfNoActiveSource recovers stale active runs from dead owner processes', async () => {
+    await mkdir(join(tempDir, AUTONOMY_DIR), { recursive: true })
+    await writeFile(
+      resolveAutonomyRunsPath(tempDir),
+      `${JSON.stringify(
+        {
+          runs: [
+            {
+              runId: 'stale-run',
+              runtime: 'automatic',
+              trigger: 'scheduled-task',
+              status: 'running',
+              rootDir: tempDir,
+              currentDir: tempDir,
+              sourceId: 'cron-1',
+              sourceLabel: 'nightly',
+              promptPreview: 'stale scheduled prompt',
+              createdAt: 100,
+              startedAt: 100,
+              ownerProcessId: 2_147_483_647,
+              ownerSessionId: 'dead-session',
+            },
+          ],
+        },
+        null,
+        2,
+      )}\n`,
+      'utf-8',
+    )
+
+    await expect(
+      hasActiveAutonomyRunForSource({
+        trigger: 'scheduled-task',
+        sourceId: 'cron-1',
+        rootDir: tempDir,
+      }),
+    ).resolves.toBe(false)
+
+    const command = await createAutonomyQueuedPromptIfNoActiveSource({
+      basePrompt: 'scheduled prompt',
+      trigger: 'scheduled-task',
+      rootDir: tempDir,
+      currentDir: tempDir,
+      sourceId: 'cron-1',
+    })
+    const runs = await listAutonomyRuns(tempDir)
+
+    expect(command).not.toBeNull()
+    expect(runs).toHaveLength(2)
+    expect(runs[0]).toMatchObject({
+      trigger: 'scheduled-task',
+      status: 'queued',
+      sourceId: 'cron-1',
+      ownerProcessId: process.pid,
+    })
+    expect(runs[1]).toMatchObject({
+      runId: 'stale-run',
+      status: 'failed',
+      endedAt: runs[0]?.createdAt,
+      error: expect.stringContaining('owner process 2147483647'),
     })
   })
 
