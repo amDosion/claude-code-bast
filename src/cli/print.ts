@@ -323,6 +323,7 @@ import { asSessionId } from 'src/types/ids.js'
 import {
   commitAutonomyQueuedPrompt,
   createAutonomyQueuedPrompt,
+  createAutonomyQueuedPromptIfNoActiveSource,
   createProactiveAutonomyCommands,
   finalizeAutonomyRunCompleted,
   finalizeAutonomyRunFailed,
@@ -2832,38 +2833,32 @@ function runHeadlessStreaming(
         if (inputClosed) return
         void (async () => {
           if (task.agentId) {
-            const prepared = await prepareAutonomyTurnPrompt({
+            const command = await createAutonomyQueuedPromptIfNoActiveSource({
               basePrompt: task.prompt,
               trigger: 'scheduled-task',
-              currentDir: cwd(),
-            })
-            if (inputClosed) return
-            const command = await commitAutonomyQueuedPrompt({
-              prepared,
               currentDir: cwd(),
               sourceId: task.id,
               sourceLabel: task.prompt,
               workload: WORKLOAD_CRON,
+              shouldCreate: () => !inputClosed,
             })
+            if (!command) return
             await markAutonomyRunFailed(
               command.autonomy!.runId,
               `No teammate runtime available for scheduled task owner ${task.agentId} in headless mode.`,
             )
             return
           }
-          const prepared = await prepareAutonomyTurnPrompt({
+          const command = await createAutonomyQueuedPromptIfNoActiveSource({
             basePrompt: task.prompt,
             trigger: 'scheduled-task',
-            currentDir: cwd(),
-          })
-          if (inputClosed) return
-          const command = await commitAutonomyQueuedPrompt({
-            prepared,
             currentDir: cwd(),
             sourceId: task.id,
             sourceLabel: task.prompt,
             workload: WORKLOAD_CRON,
+            shouldCreate: () => !inputClosed,
           })
+          if (!command) return
           if (inputClosed) return
           enqueue({
             ...command,
