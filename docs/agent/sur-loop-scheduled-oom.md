@@ -212,6 +212,36 @@ queued ──► running ──► succeeded
 - Two ticks of the same scheduled task within a single process serialize on the same lock; only the first wins, the rest see the active record and return `null`.
 - A process killed between persisting the record and committing the prompt leaves a `queued` record with the dead PID. Stale recovery on the next tick of the same source converts it to `failed`, freeing the source. This is the new safety net.
 
+### Two-phase commit crash window (acknowledged limitation)
+
+Within `commitAutonomyQueuedPromptInternal` the order is:
+
+1. `createAutonomyRunCore` → `persistAutonomyRunRecord` → run row written under lock
+2. `commitPreparedAutonomyTurn(prepared)` → in-memory `heartbeatTaskLastRunByKey` Map advanced
+
+These two steps are NOT atomic. If the process is killed between (1) and (2):
+
+- `runs.json` has a fresh `queued` record stamped with the now-dead PID.
+- `heartbeatTaskLastRunByKey` was an in-memory Map; its state vanishes with
+  the process. On restart the Map is empty.
+- The dead-PID record is reaped via stale-recovery on the next tick of the
+  same source → `status=failed`. New record can be created.
+- Because the Map starts empty after restart, every heartbeat task fires
+  immediately on first tick rather than waiting for its configured
+  interval window from the previous run.
+
+**Severity**: low. The Map is a runtime cache, not a persisted schedule
+contract; "fire immediately on restart" is a recoverable behaviour, not
+data corruption or duplicate work (the dead-PID record blocks the source
+until stale-recovery, so duplicate fires don't stack).
+
+**Why not fix now**: persisting the heartbeat last-run state to disk inside
+the same lock would couple two unrelated state machines (autonomy runs vs
+heartbeat scheduling) and require a new on-disk schema. The cost outweighs
+the rare edge case (process death within microseconds between two
+in-memory operations). Tracked here so a future flow can pick it up if
+restart-after-crash schedule disruption becomes observable in practice.
+
 ---
 
 ## 8. Existing tests

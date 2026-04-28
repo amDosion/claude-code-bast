@@ -133,11 +133,35 @@ function mergeAgentsAuthority(files: AutonomyAuthorityFile[]): string | null {
     .join('\n\n')
 }
 
+/**
+ * Replaces fenced code-block content (and the ``` fence delimiters
+ * themselves) with empty strings while preserving the index of every
+ * other line. Used by the heartbeat parser so that `tasks:` literals
+ * appearing inside Markdown code samples in HEARTBEAT.md docs do not
+ * collide with the real config block.
+ */
+function maskCodeFencedLines(lines: string[]): string[] {
+  const masked = lines.slice()
+  let inFence = false
+  for (let i = 0; i < masked.length; i++) {
+    const trimmed = masked[i]!.trim()
+    if (trimmed.startsWith('```')) {
+      inFence = !inFence
+      masked[i] = ''
+      continue
+    }
+    if (inFence) {
+      masked[i] = ''
+    }
+  }
+  return masked
+}
+
 export function parseHeartbeatAuthorityTasks(
   content: string,
 ): HeartbeatAuthorityTask[] {
   const tasks: HeartbeatAuthorityTask[] = []
-  const lines = content.split('\n')
+  const lines = maskCodeFencedLines(content.split('\n'))
   const getIndent = (line: string): number =>
     line.length - line.trimStart().length
   const parseScalar = (line: string, key: string): string =>
