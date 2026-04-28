@@ -472,6 +472,7 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
         ? firstWorkload
         : undefined
     let autonomyRunIds: string[] | undefined
+    const deferredAutonomyRunIds = new Set<string>()
 
     // Wrap the entire turn (processUserInput loop + onQuery) in an
     // AsyncLocalStorage context. This is the ONLY way to correctly
@@ -490,6 +491,7 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
             ;(autonomyRunIds ??= []).push(cmd.autonomy.runId)
             await markAutonomyRunRunning(cmd.autonomy.runId)
           }
+          const runId = cmd.autonomy?.runId
           const result = await processUserInput({
             input: cmd.value,
             preExpansionInput: cmd.preExpansionValue,
@@ -510,7 +512,11 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
             bridgeOrigin: cmd.bridgeOrigin,
             isMeta: cmd.isMeta,
             skipAttachments: !isFirst,
+            autonomy: cmd.autonomy,
           })
+          if (runId && result.deferAutonomyCompletion) {
+            deferredAutonomyRunIds.add(runId)
+          }
           // Stamp origin here rather than threading another arg through
           // processUserInput → processUserInputBase → processTextPrompt → createUserMessage.
           // Derive origin from mode for task-notifications — mirrors the origin
@@ -613,6 +619,9 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
       }) // end runWithWorkload — ALS context naturally scoped, no finally needed
       if (autonomyRunIds?.length) {
         for (const runId of autonomyRunIds) {
+          if (deferredAutonomyRunIds.has(runId)) {
+            continue
+          }
           const nextCommands = await finalizeAutonomyRunCompleted({
             runId,
             priority: 'later',
@@ -626,6 +635,9 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
     } catch (error) {
       if (autonomyRunIds?.length) {
         for (const runId of autonomyRunIds) {
+          if (deferredAutonomyRunIds.has(runId)) {
+            continue
+          }
           await finalizeAutonomyRunFailed({
             runId,
             error: String(error),

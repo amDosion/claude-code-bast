@@ -178,6 +178,12 @@ export type ToolUseContext = {
     querySource?: QuerySource
     /** Optional callback to get the latest tools (e.g., after MCP servers connect mid-query) */
     refreshTools?: () => Tools
+    /**
+     * Allows non-bundled harnesses to exercise the same background forked slash
+     * command path that production assistant mode gates behind feature('KAIROS').
+     * Still requires AppState.kairosEnabled.
+     */
+    allowBackgroundForkedSlashCommands?: boolean
   }
   abortController: AbortController
   readFileState: FileStateCache
