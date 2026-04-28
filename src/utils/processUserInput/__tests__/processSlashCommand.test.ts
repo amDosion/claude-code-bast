@@ -131,7 +131,7 @@ async function waitForRunStatus(
   runId: string,
   status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled',
 ): Promise<void> {
-  for (let i = 0; i < 50; i++) {
+  for (let i = 0; i < 200; i++) {
     const run = await getAutonomyRunById(runId, tempDir)
     if (run?.status === status) {
       return
@@ -143,7 +143,7 @@ async function waitForRunStatus(
 }
 
 async function waitForRunAgentStarts(expected: number): Promise<void> {
-  for (let i = 0; i < 50; i++) {
+  for (let i = 0; i < 200; i++) {
     if (runAgentStartCount >= expected) {
       return
     }

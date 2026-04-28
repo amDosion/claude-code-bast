@@ -28,14 +28,20 @@ import {
   type ManagedAutonomyFlowStepDefinition,
 } from './autonomyFlows.js'
 import { withAutonomyPersistenceLock } from './autonomyPersistence.js'
-import { logForDebugging } from './debug.js'
 import { getFsImplementation } from './fsOperations.js'
 import { isProcessRunning } from './genericProcessUtils.js'
+import { logError } from './log.js'
 
 const AUTONOMY_RUNS_MAX = 200
 const AUTONOMY_RUNS_RELATIVE_PATH = join(AUTONOMY_DIR, 'runs.json')
-const STALE_ACTIVE_RUN_ERROR_PREFIX =
-  'Recovered stale active autonomy run'
+// Sentinel string surfaced to operators via runs.json error fields and
+// referenced by the HEARTBEAT.md `stale-recovery-health` task. Changing
+// this value will silently break that monitor — keep stable.
+const STALE_ACTIVE_RUN_ERROR_PREFIX = 'Recovered stale active autonomy run'
+
+// Guards the legacy-block warning so it fires once per (process, runId) instead
+// of every dedup tick while a no-owner record sits there.
+const warnedLegacyBlockRunIds = new Set<string>()
 
 export type AutonomyRunStatus =
   | 'queued'
@@ -313,6 +319,7 @@ async function persistAutonomyRunRecord(
     const sourceId = record.sourceId
     if (skipWhenActiveSource && sourceId) {
       let hasBlockingActiveRun = false
+      let staleRecoveriesApplied = false
       for (let i = 0; i < runs.length; i++) {
         const run = runs[i]!
         if (
@@ -326,16 +333,26 @@ async function persistAutonomyRunRecord(
         }
         if (isStaleActiveAutonomyRun(run)) {
           runs[i] = recoverStaleActiveAutonomyRun(run, record.createdAt)
+          staleRecoveriesApplied = true
           continue
         }
-        if (run.ownerProcessId === undefined) {
-          logForDebugging(
-            `[autonomyRuns] blocked by legacy un-owned active run ${run.runId} (createdAt=${run.createdAt}); cancel manually if this is a stale upgrade artifact`,
+        if (
+          run.ownerProcessId === undefined &&
+          !warnedLegacyBlockRunIds.has(run.runId)
+        ) {
+          warnedLegacyBlockRunIds.add(run.runId)
+          logError(
+            new Error(
+              `[autonomyRuns] blocked by legacy un-owned active run ${run.runId} (createdAt=${run.createdAt}); cancel manually if this is a stale upgrade artifact`,
+            ),
           )
         }
         hasBlockingActiveRun = true
       }
       if (hasBlockingActiveRun) {
+        if (staleRecoveriesApplied) {
+          await writeAutonomyRuns(runs, rootDir)
+        }
         return
       }
     }
@@ -372,31 +389,40 @@ async function queueManagedFlowStepRunForRecord(
   }
 }
 
-export async function createAutonomyRun(
+async function createAutonomyRunCore(
   params: CreateAutonomyRunParams,
-): Promise<AutonomyRunRecord> {
+  skipIfActiveSource: boolean,
+): Promise<AutonomyRunRecord | null> {
   const rootDir = resolve(params.rootDir ?? getProjectRoot())
   const currentDir = resolve(params.currentDir ?? rootDir)
   const record = buildAutonomyRunRecord(params, rootDir, currentDir)
 
-  await persistAutonomyRunRecord(record, rootDir, false)
+  const created = await persistAutonomyRunRecord(
+    record,
+    rootDir,
+    skipIfActiveSource,
+  )
+  if (!created) {
+    return null
+  }
   await queueManagedFlowStepRunForRecord(record, rootDir)
+  return record
+}
+
+export async function createAutonomyRun(
+  params: CreateAutonomyRunParams,
+): Promise<AutonomyRunRecord> {
+  const record = await createAutonomyRunCore(params, false)
+  if (!record) {
+    throw new Error('Autonomy run was unexpectedly skipped.')
+  }
   return record
 }
 
 export async function createAutonomyRunIfNoActiveSource(
   params: CreateAutonomyRunParams & { sourceId: string },
 ): Promise<AutonomyRunRecord | null> {
-  const rootDir = resolve(params.rootDir ?? getProjectRoot())
-  const currentDir = resolve(params.currentDir ?? rootDir)
-  const record = buildAutonomyRunRecord(params, rootDir, currentDir)
-
-  const created = await persistAutonomyRunRecord(record, rootDir, true)
-  if (!created) {
-    return null
-  }
-  await queueManagedFlowStepRunForRecord(record, rootDir)
-  return record
+  return createAutonomyRunCore(params, true)
 }
 
 function buildManagedFlowStepPrompt(
@@ -793,6 +819,19 @@ export async function createAutonomyQueuedPromptIfNoActiveSource(params: {
 }): Promise<QueuedCommand | null> {
   const rootDir = resolve(params.rootDir ?? getProjectRoot())
   const currentDir = resolve(params.currentDir ?? getCwd())
+  // Cheap optimistic pre-check: skip the AGENTS.md / HEARTBEAT.md disk
+  // reads + prompt assembly when an active run for this source already
+  // blocks dedup. The lock-side check inside persistAutonomyRunRecord
+  // remains authoritative; this only fast-paths the common storm case.
+  if (
+    await hasActiveAutonomyRunForSource({
+      trigger: params.trigger,
+      sourceId: params.sourceId,
+      rootDir,
+    })
+  ) {
+    return null
+  }
   const prepared = await prepareAutonomyTurnPrompt({
     basePrompt: params.basePrompt,
     trigger: params.trigger,
@@ -862,25 +901,17 @@ async function commitAutonomyQueuedPromptInternal(
     params.currentDir ?? params.prepared.currentDir ?? getCwd(),
   )
   const value = params.prepared.prompt
-  const run =
-    skipWhenActiveSource && params.sourceId
-      ? await createAutonomyRunIfNoActiveSource({
-          trigger: params.prepared.trigger,
-          prompt: value,
-          rootDir,
-          currentDir,
-          sourceId: params.sourceId,
-          sourceLabel: params.sourceLabel,
-        })
-      : await createAutonomyRun({
-          trigger: params.prepared.trigger,
-          prompt: value,
-          rootDir,
-          currentDir,
-          sourceId: params.sourceId,
-          sourceLabel: params.sourceLabel,
-          flow: params.flow,
-        })
+  const runParams: CreateAutonomyRunParams = {
+    trigger: params.prepared.trigger,
+    prompt: value,
+    rootDir,
+    currentDir,
+    sourceId: params.sourceId,
+    sourceLabel: params.sourceLabel,
+    flow: params.flow,
+  }
+  const useDedup = skipWhenActiveSource && Boolean(params.sourceId)
+  const run = await createAutonomyRunCore(runParams, useDedup)
   if (!run) {
     return null
   }

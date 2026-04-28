@@ -259,6 +259,69 @@ describe('autonomyRuns', () => {
     })
   })
 
+  test('createAutonomyQueuedPromptIfNoActiveSource does not advance heartbeat last-run state on dedup skip (two-phase commit invariant)', async () => {
+    await writeTempFile(
+      tempDir,
+      HEARTBEAT_REL,
+      [
+        'tasks:',
+        '  - name: inbox',
+        '    interval: 30m',
+        '    prompt: "Check inbox"',
+      ].join('\n'),
+    )
+
+    // Seed an active queued run for cron-1 so the next dedup attempt skips.
+    await mkdir(join(tempDir, AUTONOMY_DIR), { recursive: true })
+    await writeFile(
+      resolveAutonomyRunsPath(tempDir),
+      `${JSON.stringify(
+        {
+          runs: [
+            {
+              runId: 'preexisting-active',
+              runtime: 'automatic',
+              trigger: 'scheduled-task',
+              status: 'queued',
+              rootDir: tempDir,
+              currentDir: tempDir,
+              sourceId: 'cron-1',
+              promptPreview: 'still queued',
+              createdAt: 100,
+              ownerProcessId: process.pid,
+              ownerSessionId: 'self',
+            },
+          ],
+        },
+        null,
+        2,
+      )}\n`,
+      'utf-8',
+    )
+
+    const skipped = await createAutonomyQueuedPromptIfNoActiveSource({
+      basePrompt: 'scheduled prompt',
+      trigger: 'scheduled-task',
+      rootDir: tempDir,
+      currentDir: tempDir,
+      sourceId: 'cron-1',
+    })
+    expect(skipped).toBeNull()
+
+    // If the dedup skip wrongly advanced heartbeat state, the next
+    // proactive-tick prompt would NOT include the inbox task. Verify it
+    // still does.
+    const followUp = await createAutonomyQueuedPrompt({
+      basePrompt: '<tick>12:00:00</tick>',
+      trigger: 'proactive-tick',
+      rootDir: tempDir,
+      currentDir: tempDir,
+    })
+    expect(followUp).not.toBeNull()
+    expect(followUp!.value).toContain('Due HEARTBEAT.md tasks:')
+    expect(followUp!.value).toContain('- inbox (30m): Check inbox')
+  })
+
   test('createAutonomyQueuedPromptIfNoActiveSource recovers stale active runs from dead owner processes', async () => {
     await mkdir(join(tempDir, AUTONOMY_DIR), { recursive: true })
     await writeFile(
