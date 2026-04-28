@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { existsSync, readFileSync } from 'fs'
 import { mkdir, writeFile } from 'fs/promises'
-import { join } from 'path'
+import { join, resolve as resolvePath } from 'path'
 import {
   resetStateForTests,
   setCwdState,
@@ -21,6 +22,7 @@ import {
   markAutonomyRunRunning,
   recoverManagedAutonomyFlowPrompt,
   resolveAutonomyRunsPath,
+  STALE_ACTIVE_RUN_ERROR_PREFIX,
   startManagedAutonomyFlowFromHeartbeatTask,
 } from '../autonomyRuns'
 import {
@@ -648,5 +650,28 @@ describe('autonomyRuns', () => {
     expect(recovered).not.toBeNull()
     expect(recovered!.autonomy?.runId).toBe(command!.autonomy?.runId)
     expect(recovered!.autonomy?.flowId).toBe(flow!.flowId)
+  })
+
+  test('STALE_ACTIVE_RUN_ERROR_PREFIX stays in sync with HEARTBEAT.md stale-recovery-health task', () => {
+    // The HEARTBEAT.md stale-recovery-health task prompt embeds this prefix
+    // as a literal string. Changing the constant without updating the
+    // heartbeat prompt would silently break the monitor — this test fails
+    // first to force the simultaneous update.
+    const heartbeatPath = resolvePath(
+      import.meta.dir,
+      '..',
+      '..',
+      '..',
+      '.claude',
+      'autonomy',
+      'HEARTBEAT.md',
+    )
+    if (!existsSync(heartbeatPath)) {
+      // .claude/ may be absent in some checkout layouts (e.g., shallow clone
+      // for npm pack). Skip rather than fail in that case.
+      return
+    }
+    const content = readFileSync(heartbeatPath, 'utf8')
+    expect(content).toContain(STALE_ACTIVE_RUN_ERROR_PREFIX)
   })
 })

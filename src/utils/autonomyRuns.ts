@@ -35,9 +35,12 @@ import { logError } from './log.js'
 const AUTONOMY_RUNS_MAX = 200
 const AUTONOMY_RUNS_RELATIVE_PATH = join(AUTONOMY_DIR, 'runs.json')
 // Sentinel string surfaced to operators via runs.json error fields and
-// referenced by the HEARTBEAT.md `stale-recovery-health` task. Changing
-// this value will silently break that monitor — keep stable.
-const STALE_ACTIVE_RUN_ERROR_PREFIX = 'Recovered stale active autonomy run'
+// referenced literally by the HEARTBEAT.md `stale-recovery-health` task.
+// A unit test asserts the HEARTBEAT.md file contains this exact prefix —
+// changing the value will fail the test, forcing the heartbeat prompt
+// to be updated in the same change.
+export const STALE_ACTIVE_RUN_ERROR_PREFIX =
+  'Recovered stale active autonomy run'
 
 // Guards the legacy-block warning so it fires once per (process, runId) instead
 // of every dedup tick while a no-owner record sits there.
@@ -225,12 +228,30 @@ function isActiveAutonomyRunStatus(status: AutonomyRunStatus): boolean {
   return status === 'queued' || status === 'running'
 }
 
-function isStaleActiveAutonomyRun(run: AutonomyRunRecord): boolean {
+function isValidOwnerProcessId(pid: number | undefined): pid is number {
+  // Reject non-numeric, negative, zero (Linux: send-to-process-group), and
+  // non-integer values. A forged record with pid=0 or pid<0 used to be
+  // treated as live and could permanently block dedup; treating them as
+  // stale closes that availability hole.
   return (
-    isActiveAutonomyRunStatus(run.status) &&
-    typeof run.ownerProcessId === 'number' &&
-    !isProcessRunning(run.ownerProcessId)
+    typeof pid === 'number' &&
+    Number.isInteger(pid) &&
+    pid > 0 &&
+    pid < 4_194_304
   )
+}
+
+function isStaleActiveAutonomyRun(run: AutonomyRunRecord): boolean {
+  if (!isActiveAutonomyRunStatus(run.status)) {
+    return false
+  }
+  if (run.ownerProcessId === undefined) {
+    return false
+  }
+  if (!isValidOwnerProcessId(run.ownerProcessId)) {
+    return true
+  }
+  return !isProcessRunning(run.ownerProcessId)
 }
 
 function recoverStaleActiveAutonomyRun(
