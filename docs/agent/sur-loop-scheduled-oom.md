@@ -59,7 +59,9 @@ Sessions with long-lived autonomy/cron use cases were unsafe. The OOM took the e
 
 - The cron scheduler itself (`src/utils/cronScheduler.ts`) — its tick semantics are not changing
 - `autonomyFlows.ts` flow state machine — separate from per-run tracking
-- HEARTBEAT.md parser (`parseHeartbeatAuthorityTasks`) — unchanged
+- HEARTBEAT.md scheduling semantics — unchanged. `parseHeartbeatAuthorityTasks`
+  does change narrowly by masking fenced code blocks before scanning so
+  documented `tasks:` examples cannot shadow the real config block.
 - `prepareAutonomyTurnPrompt` content shape — only its call ordering relative to run creation changes
 - Any provider-level behaviour (`services/api/**`) — not touched
 
@@ -102,7 +104,7 @@ Sessions with long-lived autonomy/cron use cases were unsafe. The OOM took the e
 
 ## 5. Call flow (post-fix)
 
-```
+```text
 cron tick (useScheduledTasks)
   └─> createScheduledTaskQueuedCommand(task)
         └─> createAutonomyQueuedPromptIfNoActiveSource
@@ -128,7 +130,7 @@ Two structural moves: (a) preparing the prompt no longer commits heartbeat state
 
 For slash commands:
 
-```
+```text
 processUserInput → processUserInputBase
   └─> processSlashCommand(..., autonomy = cmd.autonomy)
         └─> command implementation
@@ -167,7 +169,7 @@ Backward compatibility: older records with both fields absent are treated as "ow
 
 ### Stale-recovery rule
 
-```
+```text
 isStaleActiveAutonomyRun(run) ⇔
     run.status ∈ {queued, running}
   ∧ typeof run.ownerProcessId === 'number'
@@ -188,9 +190,9 @@ After fix: `commitPreparedAutonomyTurn` is called only after `createAutonomyRunI
 
 ### Run status lifecycle (unchanged at edges, tightened in the middle)
 
-```
+```text
 queued ──► running ──► succeeded
-   │           │          
+   │           │
    │           └────► failed
    ├──────────────────► cancelled
    └──► failed (stale recovery, new path)
@@ -454,7 +456,7 @@ investigation showed the diff is composed of:
 **Resolution rule (binding for `implement`)**: when committing this branch, split
 `processSlashCommand.tsx` into **two commits** on the same branch:
 
-```
+```text
 chore: reformat processSlashCommand with Biome   # ~250 lines, formatter-only
 feat: thread autonomy run id through forked slash commands for deferred completion   # ~50 lines, contract logic
 ```

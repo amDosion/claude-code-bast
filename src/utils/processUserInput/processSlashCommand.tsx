@@ -90,6 +90,18 @@ type SlashCommandResult = ProcessUserInputBaseResult & {
 const MCP_SETTLE_POLL_MS = 200;
 const MCP_SETTLE_TIMEOUT_MS = 10_000;
 
+function isTestRuntime(): boolean {
+  return process.env.NODE_ENV === 'test';
+}
+
+function assertBackgroundForkedSlashCommandTestOverrideAllowed(): void {
+  if (!isTestRuntime()) {
+    throw new Error(
+      'ToolUseContext.options.allowBackgroundForkedSlashCommands is test-only and cannot be enabled outside NODE_ENV=test.',
+    );
+  }
+}
+
 /**
  * Executes a slash command with context: fork in a sub-agent.
  */
@@ -143,7 +155,19 @@ async function executeForkedSlashCommand(
   // are user-invoked skills (/commit etc.) that should run synchronously
   // with the progress UI.
   const appState = await context.getAppState();
-  if (appState.kairosEnabled && (feature('KAIROS') || context.options.allowBackgroundForkedSlashCommands === true)) {
+  const allowBackgroundForkedSlashCommands = context.options.allowBackgroundForkedSlashCommands === true;
+  if (allowBackgroundForkedSlashCommands) {
+    assertBackgroundForkedSlashCommandTestOverrideAllowed();
+  }
+  let canRunBackgroundForkedSlashCommand = false;
+  if (appState.kairosEnabled) {
+    if (feature('KAIROS')) {
+      canRunBackgroundForkedSlashCommand = true;
+    } else if (allowBackgroundForkedSlashCommands) {
+      canRunBackgroundForkedSlashCommand = true;
+    }
+  }
+  if (canRunBackgroundForkedSlashCommand) {
     // Standalone abortController — background subagents survive main-thread
     // ESC (same policy as AgentTool's async path). They're cron-driven; if
     // killed mid-run they just re-fire on the next schedule.
@@ -234,8 +258,8 @@ async function executeForkedSlashCommand(
       }
       const resultText = extractResultText(agentMessages, 'Command completed');
       logForDebugging(`Background forked command /${commandName} completed (agent ${agentId})`);
-      enqueueResult(`<scheduled-task-result command="/${commandName}">\n${resultText}\n</scheduled-task-result>`);
       await finalizeDeferredAutonomyRunCompleted();
+      enqueueResult(`<scheduled-task-result command="/${commandName}">\n${resultText}\n</scheduled-task-result>`);
     })().catch(async err => {
       logError(err);
       enqueueResult(

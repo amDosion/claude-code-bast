@@ -261,6 +261,34 @@ describe('autonomyRuns', () => {
     })
   })
 
+  test('createAutonomyQueuedPromptIfNoActiveSource scopes dedup by ownerKey', async () => {
+    const first = await createAutonomyQueuedPromptIfNoActiveSource({
+      basePrompt: 'scheduled prompt',
+      trigger: 'scheduled-task',
+      rootDir: tempDir,
+      currentDir: tempDir,
+      sourceId: 'cron-1',
+      ownerKey: 'owner-a',
+    })
+    const second = await createAutonomyQueuedPromptIfNoActiveSource({
+      basePrompt: 'scheduled prompt',
+      trigger: 'scheduled-task',
+      rootDir: tempDir,
+      currentDir: tempDir,
+      sourceId: 'cron-1',
+      ownerKey: 'owner-b',
+    })
+
+    const runs = await listAutonomyRuns(tempDir)
+
+    expect(first).not.toBeNull()
+    expect(second).not.toBeNull()
+    expect(runs).toHaveLength(2)
+    expect(new Set(runs.map(run => run.ownerKey))).toEqual(
+      new Set(['owner-a', 'owner-b']),
+    )
+  })
+
   test('createAutonomyQueuedPromptIfNoActiveSource does not advance heartbeat last-run state on dedup skip (two-phase commit invariant)', async () => {
     await writeTempFile(
       tempDir,
@@ -384,6 +412,64 @@ describe('autonomyRuns', () => {
       status: 'failed',
       endedAt: runs[0]?.createdAt,
       error: expect.stringContaining('owner process 2147483647'),
+    })
+  })
+
+  test('stale managed-flow run recovery also marks the flow step failed', async () => {
+    const command = await startManagedAutonomyFlowFromHeartbeatTask({
+      task: {
+        name: 'weekly-report',
+        interval: '7d',
+        prompt: 'Ship the weekly report',
+        steps: [
+          {
+            name: 'gather',
+            prompt: 'Gather weekly inputs',
+          },
+        ],
+      },
+      rootDir: tempDir,
+      currentDir: tempDir,
+    })
+    expect(command).not.toBeNull()
+    const runId = command!.autonomy!.runId
+    await markAutonomyRunRunning(runId, tempDir, 100)
+
+    const runsPath = resolveAutonomyRunsPath(tempDir)
+    const file = JSON.parse(readFileSync(runsPath, 'utf-8')) as {
+      runs: Array<Record<string, unknown>>
+    }
+    file.runs = file.runs.map(run =>
+      run.runId === runId
+        ? { ...run, ownerProcessId: 2_147_483_647 }
+        : run,
+    )
+    await writeFile(runsPath, `${JSON.stringify(file, null, 2)}\n`, 'utf-8')
+
+    const replacement = await createAutonomyQueuedPromptIfNoActiveSource({
+      basePrompt: 'replacement prompt',
+      trigger: 'managed-flow-step',
+      rootDir: tempDir,
+      currentDir: tempDir,
+      sourceId: command!.autonomy!.sourceId!,
+      ownerKey: 'main-thread',
+    })
+    const [flow] = await listAutonomyFlows(tempDir)
+    const runs = await listAutonomyRuns(tempDir)
+
+    expect(replacement).not.toBeNull()
+    expect(runs.find(run => run.runId === runId)).toMatchObject({
+      status: 'failed',
+      error: expect.stringContaining(STALE_ACTIVE_RUN_ERROR_PREFIX),
+    })
+    expect(flow).toMatchObject({
+      status: 'failed',
+      blockedRunId: runId,
+    })
+    expect(flow?.stateJson?.steps[0]).toMatchObject({
+      status: 'failed',
+      runId,
+      error: expect.stringContaining(STALE_ACTIVE_RUN_ERROR_PREFIX),
     })
   })
 

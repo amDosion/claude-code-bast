@@ -187,7 +187,8 @@ export type ToolUseContext = {
      * field is constructed in-process by trusted application code only;
      * no external surface (MCP, plugin, slash command, network) writes to
      * `ToolUseContext.options`. Setting this true outside a test bypasses
-     * the KAIROS feature flag — do not.
+     * the KAIROS feature flag; `processSlashCommand` rejects this flag
+     * outside `NODE_ENV=test`.
      */
     allowBackgroundForkedSlashCommands?: boolean
   }

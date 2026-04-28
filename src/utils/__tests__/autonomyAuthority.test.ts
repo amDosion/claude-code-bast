@@ -267,6 +267,33 @@ describe('autonomyAuthority', () => {
     })
   })
 
+  test('parseHeartbeatAuthorityTasks ignores tasks: literals inside tilde markdown code fences', () => {
+    const content = [
+      '# HEARTBEAT.md',
+      '',
+      '~~~yaml',
+      'tasks:',
+      '  - name: not-a-real-task',
+      '    interval: 1m',
+      '    prompt: "would-be-shadowed"',
+      '~~~',
+      '',
+      'tasks:',
+      '  - name: real-task',
+      '    interval: 30m',
+      '    prompt: "Real prompt"',
+    ].join('\n')
+
+    const parsed = parseHeartbeatAuthorityTasks(content)
+
+    expect(parsed).toHaveLength(1)
+    expect(parsed[0]).toMatchObject({
+      name: 'real-task',
+      interval: '30m',
+      prompt: 'Real prompt',
+    })
+  })
+
   test('parseHeartbeatAuthorityTasks parses real tasks even when documentation precedes them', () => {
     const content = [
       '# Heartbeat docs',

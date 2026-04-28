@@ -134,7 +134,7 @@ function mergeAgentsAuthority(files: AutonomyAuthorityFile[]): string | null {
 }
 
 /**
- * Replaces fenced code-block content (and the ``` fence delimiters
+ * Replaces fenced code-block content (and the ``` / ~~~ fence delimiters
  * themselves) with empty strings while preserving the index of every
  * other line. Used by the heartbeat parser so that `tasks:` literals
  * appearing inside Markdown code samples in HEARTBEAT.md docs do not
@@ -142,15 +142,21 @@ function mergeAgentsAuthority(files: AutonomyAuthorityFile[]): string | null {
  */
 function maskCodeFencedLines(lines: string[]): string[] {
   const masked = lines.slice()
-  let inFence = false
+  let activeFenceChar: '`' | '~' | null = null
   for (let i = 0; i < masked.length; i++) {
     const trimmed = masked[i]!.trim()
-    if (trimmed.startsWith('```')) {
-      inFence = !inFence
+    const fenceMatch = trimmed.match(/^(```+|~~~+)/)
+    if (fenceMatch) {
+      const fenceChar = fenceMatch[1]![0] as '`' | '~'
+      if (activeFenceChar === null) {
+        activeFenceChar = fenceChar
+      } else if (activeFenceChar === fenceChar) {
+        activeFenceChar = null
+      }
       masked[i] = ''
       continue
     }
-    if (inFence) {
+    if (activeFenceChar !== null) {
       masked[i] = ''
     }
   }

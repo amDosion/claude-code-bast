@@ -21,6 +21,7 @@ import {
 let runAgentBlocker: Promise<void> | null = null
 let releaseRunAgentBlocker: (() => void) | null = null
 let runAgentStartCount = 0
+let originalNodeEnv: string | undefined
 
 function holdRunAgent(): void {
   runAgentBlocker = new Promise(resolve => {
@@ -156,6 +157,8 @@ async function waitForRunAgentStarts(expected: number): Promise<void> {
 
 beforeEach(async () => {
   tempDir = await createTempDir('process-slash-command-')
+  originalNodeEnv = process.env.NODE_ENV
+  process.env.NODE_ENV = 'test'
   runAgentBlocker = null
   releaseRunAgentBlocker = null
   runAgentStartCount = 0
@@ -169,6 +172,11 @@ beforeEach(async () => {
 
 afterEach(async () => {
   releaseRunAgent()
+  if (originalNodeEnv === undefined) {
+    delete process.env.NODE_ENV
+  } else {
+    process.env.NODE_ENV = originalNodeEnv
+  }
   resetStateForTests()
   resetAutonomyAuthorityForTests()
   resetCommandQueue()
@@ -307,5 +315,31 @@ describe('processSlashCommand', () => {
         run => run.sourceId === 'cron-loop',
       ),
     ).toHaveLength(2)
+  })
+
+  test('rejects the background fork test override outside test runtime', async () => {
+    process.env.NODE_ENV = 'production'
+
+    const result = await processSlashCommand(
+      '/forked review',
+      [],
+      [],
+      [],
+      createContext(),
+      mock(() => {}),
+      undefined,
+      false,
+      async () => ({ behavior: 'allow', updatedInput: {} }) as any,
+    )
+
+    expect(result.shouldQuery).toBe(false)
+    expect(
+      result.messages.some(message =>
+        JSON.stringify(message).includes(
+          'allowBackgroundForkedSlashCommands is test-only',
+        ),
+      ),
+    ).toBe(true)
+    expect(runAgentStartCount).toBe(0)
   })
 })

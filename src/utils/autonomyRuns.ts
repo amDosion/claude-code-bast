@@ -254,15 +254,42 @@ function isStaleActiveAutonomyRun(run: AutonomyRunRecord): boolean {
   return !isProcessRunning(run.ownerProcessId)
 }
 
-function recoverStaleActiveAutonomyRun(
+function staleActiveRunError(run: AutonomyRunRecord): string {
+  return `${STALE_ACTIVE_RUN_ERROR_PREFIX}: owner process ${run.ownerProcessId} is no longer running.`
+}
+
+function failAutonomyRunRecord(
   run: AutonomyRunRecord,
+  error: string,
   nowMs: number,
 ): AutonomyRunRecord {
   return {
     ...run,
     status: 'failed',
     endedAt: nowMs,
-    error: `${STALE_ACTIVE_RUN_ERROR_PREFIX}: owner process ${run.ownerProcessId} is no longer running.`,
+    error,
+  }
+}
+
+function recoverStaleActiveAutonomyRun(
+  run: AutonomyRunRecord,
+  nowMs: number,
+): AutonomyRunRecord {
+  return failAutonomyRunRecord(run, staleActiveRunError(run), nowMs)
+}
+
+async function syncFailedManagedFlowForRun(
+  run: AutonomyRunRecord,
+  rootDir: string,
+): Promise<void> {
+  if (run.parentFlowId && run.parentFlowSyncMode === 'managed') {
+    await markManagedAutonomyFlowStepFailed({
+      flowId: run.parentFlowId,
+      runId: run.runId,
+      error: run.error ?? 'Autonomy run failed.',
+      rootDir,
+      nowMs: run.endedAt,
+    })
   }
 }
 
@@ -333,8 +360,12 @@ async function persistAutonomyRunRecord(
   record: AutonomyRunRecord,
   rootDir: string,
   skipWhenActiveSource: boolean,
-): Promise<boolean> {
+): Promise<{
+  created: boolean
+  recoveredStaleRuns: AutonomyRunRecord[]
+}> {
   let created = false
+  const recoveredStaleRuns: AutonomyRunRecord[] = []
   await withAutonomyPersistenceLock(rootDir, async () => {
     const runs = await listAutonomyRuns(rootDir)
     const sourceId = record.sourceId
@@ -353,7 +384,12 @@ async function persistAutonomyRunRecord(
           continue
         }
         if (isStaleActiveAutonomyRun(run)) {
-          runs[i] = recoverStaleActiveAutonomyRun(run, record.createdAt)
+          const recovered = recoverStaleActiveAutonomyRun(
+            run,
+            record.createdAt,
+          )
+          runs[i] = recovered
+          recoveredStaleRuns.push(recovered)
           staleRecoveriesApplied = true
           continue
         }
@@ -381,7 +417,7 @@ async function persistAutonomyRunRecord(
     await writeAutonomyRuns(runs, rootDir)
     created = true
   })
-  return created
+  return { created, recoveredStaleRuns }
 }
 
 async function queueManagedFlowStepRunForRecord(
@@ -418,11 +454,14 @@ async function createAutonomyRunCore(
   const currentDir = resolve(params.currentDir ?? rootDir)
   const record = buildAutonomyRunRecord(params, rootDir, currentDir)
 
-  const created = await persistAutonomyRunRecord(
+  const { created, recoveredStaleRuns } = await persistAutonomyRunRecord(
     record,
     rootDir,
     skipIfActiveSource,
   )
+  for (const recovered of recoveredStaleRuns) {
+    await syncFailedManagedFlowForRun(recovered, rootDir)
+  }
   if (!created) {
     return null
   }
@@ -663,24 +702,14 @@ export async function markAutonomyRunFailed(
   rootDir?: string,
   nowMs?: number,
 ): Promise<AutonomyRunRecord | null> {
+  const endedAt = nowMs ?? Date.now()
   const updated = await updateAutonomyRun(
     runId,
-    current => ({
-      ...current,
-      status: 'failed',
-      endedAt: nowMs ?? Date.now(),
-      error,
-    }),
+    current => failAutonomyRunRecord(current, error, endedAt),
     rootDir,
   )
-  if (updated?.parentFlowId && updated.parentFlowSyncMode === 'managed') {
-    await markManagedAutonomyFlowStepFailed({
-      flowId: updated.parentFlowId,
-      runId: updated.runId,
-      error,
-      rootDir,
-      nowMs: updated.endedAt,
-    })
+  if (updated) {
+    await syncFailedManagedFlowForRun(updated, rootDir ?? updated.rootDir)
   }
   return updated
 }
@@ -799,6 +828,7 @@ export async function createAutonomyQueuedPrompt(params: {
   currentDir?: string
   sourceId?: string
   sourceLabel?: string
+  ownerKey?: string
   workload?: string
   priority?: 'now' | 'next' | 'later'
   shouldCreate?: () => boolean
@@ -821,6 +851,7 @@ export async function createAutonomyQueuedPrompt(params: {
     currentDir,
     sourceId: params.sourceId,
     sourceLabel: params.sourceLabel,
+    ownerKey: params.ownerKey,
     workload: params.workload,
     priority: params.priority,
     flow: params.flow,
@@ -834,6 +865,7 @@ export async function createAutonomyQueuedPromptIfNoActiveSource(params: {
   currentDir?: string
   sourceId: string
   sourceLabel?: string
+  ownerKey?: string
   workload?: string
   priority?: 'now' | 'next' | 'later'
   shouldCreate?: () => boolean
@@ -849,6 +881,7 @@ export async function createAutonomyQueuedPromptIfNoActiveSource(params: {
       trigger: params.trigger,
       sourceId: params.sourceId,
       rootDir,
+      ownerKey: params.ownerKey,
     })
   ) {
     return null
@@ -868,6 +901,7 @@ export async function createAutonomyQueuedPromptIfNoActiveSource(params: {
     currentDir,
     sourceId: params.sourceId,
     sourceLabel: params.sourceLabel,
+    ownerKey: params.ownerKey,
     workload: params.workload,
     priority: params.priority,
   })
@@ -879,6 +913,7 @@ export async function commitAutonomyQueuedPrompt(params: {
   currentDir?: string
   sourceId?: string
   sourceLabel?: string
+  ownerKey?: string
   workload?: string
   priority?: 'now' | 'next' | 'later'
   flow?: AutonomyRunFlowRef
@@ -896,6 +931,7 @@ async function commitAutonomyQueuedPromptIfNoActiveSource(params: {
   currentDir?: string
   sourceId: string
   sourceLabel?: string
+  ownerKey?: string
   workload?: string
   priority?: 'now' | 'next' | 'later'
 }): Promise<QueuedCommand | null> {
@@ -909,6 +945,7 @@ async function commitAutonomyQueuedPromptInternal(
     currentDir?: string
     sourceId?: string
     sourceLabel?: string
+    ownerKey?: string
     workload?: string
     priority?: 'now' | 'next' | 'later'
     flow?: AutonomyRunFlowRef
@@ -929,6 +966,7 @@ async function commitAutonomyQueuedPromptInternal(
     currentDir,
     sourceId: params.sourceId,
     sourceLabel: params.sourceLabel,
+    ownerKey: params.ownerKey,
     flow: params.flow,
   }
   const useDedup = skipWhenActiveSource && Boolean(params.sourceId)
