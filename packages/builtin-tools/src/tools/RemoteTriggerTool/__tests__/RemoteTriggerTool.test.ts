@@ -1,14 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
-import { mkdir, readFile, rm } from 'fs/promises'
-import { tmpdir } from 'os'
-import { join } from 'path'
-import {
-  resetStateForTests,
-  setOriginalCwd,
-  setProjectRoot,
-} from 'src/bootstrap/state.js'
 
 let requestStatus = 200
+const auditRecords: Record<string, unknown>[] = []
 
 mock.module('axios', () => ({
   default: {
@@ -22,34 +15,54 @@ mock.module('axios', () => ({
 mock.module('src/utils/auth.js', () => ({
   checkAndRefreshOAuthTokenIfNeeded: async () => {},
   getClaudeAIOAuthTokens: () => ({ accessToken: 'token' }),
+  isClaudeAISubscriber: () => true,
 }))
 
 mock.module('src/services/oauth/client.js', () => ({
   getOrganizationUUID: async () => 'org',
 }))
 
+mock.module('src/services/analytics/growthbook.js', () => ({
+  getFeatureValue_CACHED_MAY_BE_STALE: () => true,
+}))
+
+mock.module('src/services/policyLimits/index.js', () => ({
+  isPolicyAllowed: () => true,
+}))
+
 mock.module('src/constants/oauth.js', () => ({
+  ALL_OAUTH_SCOPES: ['user:profile', 'user:inference'],
+  CLAUDE_AI_INFERENCE_SCOPE: 'user:inference',
+  CLAUDE_AI_OAUTH_SCOPES: ['user:profile', 'user:inference'],
+  CLAUDE_AI_PROFILE_SCOPE: 'user:profile',
+  CONSOLE_OAUTH_SCOPES: ['org:create_api_key', 'user:profile'],
+  MCP_CLIENT_METADATA_URL: 'https://example.test/oauth/metadata',
+  OAUTH_BETA_HEADER: 'oauth-test',
+  fileSuffixForOauthConfig: () => '',
   getOauthConfig: () => ({ BASE_API_URL: 'https://example.test' }),
 }))
 
-let cwd = ''
-let previousCwd = ''
+mock.module('src/utils/remoteTriggerAudit.js', () => ({
+  appendRemoteTriggerAuditRecord: async (
+    record: Record<string, unknown>,
+  ) => {
+    const fullRecord = {
+      auditId: `audit-${auditRecords.length + 1}`,
+      createdAt: Date.now(),
+      ...record,
+    }
+    auditRecords.push(fullRecord)
+    return fullRecord
+  },
+}))
 
-beforeEach(async () => {
+beforeEach(() => {
   requestStatus = 200
-  previousCwd = process.cwd()
-  cwd = join(tmpdir(), `remote-trigger-tool-${Date.now()}-${Math.random().toString(16).slice(2)}`)
-  await mkdir(cwd, { recursive: true })
-  process.chdir(cwd)
-  resetStateForTests()
-  setOriginalCwd(cwd)
-  setProjectRoot(cwd)
+  auditRecords.length = 0
 })
 
-afterEach(async () => {
-  resetStateForTests()
-  process.chdir(previousCwd)
-  await rm(cwd, { recursive: true, force: true })
+afterEach(() => {
+  auditRecords.length = 0
 })
 
 describe('RemoteTriggerTool audit', () => {
@@ -61,13 +74,14 @@ describe('RemoteTriggerTool audit', () => {
     )
 
     expect(result.data.audit_id).toBeString()
-    const raw = await readFile(
-      join(cwd, '.claude', 'remote-trigger-audit.jsonl'),
-      'utf-8',
-    )
-    expect(raw).toContain('"action":"run"')
-    expect(raw).toContain('"triggerId":"trigger-1"')
-    expect(raw).toContain('"ok":true')
+    expect(result.data.audit_id).toBe('audit-1')
+    expect(auditRecords).toHaveLength(1)
+    expect(auditRecords[0]).toMatchObject({
+      action: 'run',
+      triggerId: 'trigger-1',
+      ok: true,
+      status: 200,
+    })
   })
 
   test('writes an audit record before rethrowing validation failures', async () => {
@@ -80,12 +94,11 @@ describe('RemoteTriggerTool audit', () => {
       ),
     ).rejects.toThrow('run requires trigger_id')
 
-    const raw = await readFile(
-      join(cwd, '.claude', 'remote-trigger-audit.jsonl'),
-      'utf-8',
-    )
-    expect(raw).toContain('"action":"run"')
-    expect(raw).toContain('"ok":false')
-    expect(raw).toContain('run requires trigger_id')
+    expect(auditRecords).toHaveLength(1)
+    expect(auditRecords[0]).toMatchObject({
+      action: 'run',
+      ok: false,
+      error: 'run requires trigger_id',
+    })
   })
 })
