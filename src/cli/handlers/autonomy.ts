@@ -173,7 +173,7 @@ export async function cancelAutonomyFlowText(
     }
   } else {
     for (const runId of cancelled.queuedRunIds) {
-      await markAutonomyRunCancelled(runId)
+      await markAutonomyRunCancelled(runId, options?.rootDir)
     }
     removedCount = cancelled.queuedRunIds.length
   }
