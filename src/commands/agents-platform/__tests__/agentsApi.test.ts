@@ -30,7 +30,13 @@ mock.module('src/constants/oauth.js', () => ({
   getOauthConfig: () => ({ BASE_API_URL: 'https://api.anthropic.com' }),
 }))
 
+const prepareApiRequestMock = mock(async () => ({
+  accessToken: mockAccessToken,
+  orgUUID: mockOrgUUID,
+}))
+
 mock.module('src/utils/teleport/api.js', () => ({
+  prepareApiRequest: prepareApiRequestMock,
   getOAuthHeaders: (token: string) => ({
     Authorization: `Bearer ${token}`,
     'anthropic-version': '2023-06-01',
@@ -291,5 +297,17 @@ describe('withRetry M5: honors Retry-After header on 5xx', () => {
     // Should have retried and succeeded on second attempt
     expect(result).toHaveLength(0)
     expect(axiosGetMock).toHaveBeenCalledTimes(2)
+  })
+})
+
+// ── Regression: auth must use prepareApiRequest (not direct getClaudeAIOAuthTokens) ──
+describe('regression: uses prepareApiRequest for auth', () => {
+  test('listAgents calls prepareApiRequest to obtain token and orgUUID', async () => {
+    prepareApiRequestMock.mockClear()
+    axiosGetMock.mockResolvedValueOnce({ data: { data: [] }, status: 200 })
+
+    await listAgents()
+
+    expect(prepareApiRequestMock).toHaveBeenCalledTimes(1)
   })
 })

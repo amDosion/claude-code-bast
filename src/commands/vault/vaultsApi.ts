@@ -20,9 +20,7 @@
 
 import axios from 'axios'
 import { getOauthConfig } from '../../constants/oauth.js'
-import { getOrganizationUUID } from '../../services/oauth/client.js'
-import { getClaudeAIOAuthTokens } from '../../utils/auth.js'
-import { getOAuthHeaders } from '../../utils/teleport/api.js'
+import { getOAuthHeaders, prepareApiRequest } from '../../utils/teleport/api.js'
 
 export type Vault = {
   vault_id: string
@@ -85,22 +83,21 @@ class VaultsApiError extends Error {
 }
 
 async function buildHeaders(): Promise<Record<string, string>> {
-  const tokens = getClaudeAIOAuthTokens()
-  if (!tokens?.accessToken) {
+  let accessToken: string
+  let orgUUID: string
+  try {
+    const prepared = await prepareApiRequest()
+    accessToken = prepared.accessToken
+    orgUUID = prepared.orgUUID
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
     throw new VaultsApiError(
-      'Not authenticated. Please run /login to authenticate.',
-      401,
-    )
-  }
-  const orgUUID = await getOrganizationUUID()
-  if (!orgUUID) {
-    throw new VaultsApiError(
-      'Could not determine organization. Please run /login to authenticate.',
+      `Not authenticated: ${msg}. Run /login to re-authenticate.`,
       401,
     )
   }
   return {
-    ...getOAuthHeaders(tokens.accessToken),
+    ...getOAuthHeaders(accessToken),
     'anthropic-beta': VAULTS_BETA_HEADER,
     'x-organization-uuid': orgUUID,
   }
