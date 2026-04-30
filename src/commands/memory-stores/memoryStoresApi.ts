@@ -72,7 +72,10 @@ type ListVersionsResponse = {
   data: MemoryVersion[]
 }
 
-const MEMORY_STORES_BETA_HEADER = 'memory-stores-2025-01-01'
+// Server requires this exact beta header — confirmed from runtime error
+// "this API is in beta: add `managed-agents-2026-04-01`". Memory stores share
+// the managed-agents beta umbrella with /v1/agents and /v1/code/triggers.
+const MEMORY_STORES_BETA_HEADER = 'managed-agents-2026-04-01'
 const MAX_RETRIES = 3
 
 function sleep(ms: number): Promise<void> {

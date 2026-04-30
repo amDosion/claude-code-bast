@@ -49,7 +49,8 @@ type TriggerRunResponse = {
   run_id: string
 }
 
-const TRIGGERS_BETA_HEADER = 'triggers-2025-01-01'
+// Triggers share the managed-agents umbrella beta header.
+const TRIGGERS_BETA_HEADER = 'managed-agents-2026-04-01'
 const MAX_RETRIES = 3
 
 function sleep(ms: number): Promise<void> {

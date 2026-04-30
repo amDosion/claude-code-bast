@@ -56,7 +56,8 @@ type ListCredentialsResponse = {
   data: Credential[]
 }
 
-const VAULTS_BETA_HEADER = 'vaults-2025-01-01'
+// Vaults share the managed-agents umbrella beta header.
+const VAULTS_BETA_HEADER = 'managed-agents-2026-04-01'
 const MAX_RETRIES = 3
 
 /**

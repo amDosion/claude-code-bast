@@ -30,7 +30,8 @@ type AgentRunResponse = {
   run_id: string
 }
 
-const AGENTS_BETA_HEADER = 'agents-2025-01-01'
+// Server requires the managed-agents umbrella beta header.
+const AGENTS_BETA_HEADER = 'managed-agents-2026-04-01'
 const MAX_RETRIES = 3
 
 function sleep(ms: number): Promise<void> {
