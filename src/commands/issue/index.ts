@@ -1,4 +1,11 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { Command, LocalCommandResult } from '../../types/command.js'
 import {
@@ -341,11 +348,36 @@ const issue: Command = {
       })
 
       if (!hasGh || !parsed) {
-        // Fallback: provide URL-encoded browser link
+        // Fallback: provide URL-encoded browser link.
+        // Browsers silently truncate URLs beyond ~8KB so we cap the body at
+        // MAX_URL_BODY characters. When the full body is larger we save a draft
+        // to ~/.claude/issue-drafts/ and tell the user where to find it.
+        const MAX_URL_BODY = 4096
         const sessionSummary = getTranscriptSummary()
-        const body = encodeURIComponent(
-          `## Context from Claude Code session\n\n${sessionSummary}`,
-        )
+        const fullBodyText = `## Context from Claude Code session\n\n${sessionSummary}`
+
+        let bodyText = fullBodyText
+        let draftPath: string | null = null
+        if (fullBodyText.length > MAX_URL_BODY) {
+          bodyText =
+            fullBodyText.slice(0, MAX_URL_BODY) +
+            '\n\n... (truncated, see CLI for full body)'
+          try {
+            const draftsDir = join(homedir(), '.claude', 'issue-drafts')
+            mkdirSync(draftsDir, { recursive: true })
+            const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+            draftPath = join(draftsDir, `issue-${stamp}.md`)
+            writeFileSync(
+              draftPath,
+              `# Issue Draft\n\n**Title:** ${title}\n\n${fullBodyText}`,
+              'utf8',
+            )
+          } catch {
+            // Non-fatal; proceed without draft
+          }
+        }
+
+        const body = encodeURIComponent(bodyText)
         const encodedTitle = encodeURIComponent(title)
         const labelQuery = labels
           .map(l => `labels=${encodeURIComponent(l)}`)
@@ -356,6 +388,10 @@ const issue: Command = {
         const lines: string[] = ['## File a GitHub issue', '']
         if (url) {
           lines.push(`Open in browser:\n${url}`)
+          if (draftPath) {
+            lines.push('')
+            lines.push(`Full issue body saved to:\n  ${draftPath}`)
+          }
         } else {
           lines.push('No GitHub remote detected in this directory.')
           lines.push(

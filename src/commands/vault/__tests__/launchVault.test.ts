@@ -7,7 +7,15 @@
  * SECURITY: Tests verify credential value never appears in onDone message text.
  */
 
-import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from 'bun:test'
 import { debugMock } from '../../../../tests/mocks/debug.js'
 import { logMock } from '../../../../tests/mocks/log.js'
 
@@ -75,8 +83,14 @@ describe('callVault list', () => {
     axiosGetMock.mockResolvedValueOnce({ data: { data: vaults }, status: 200 })
 
     let onDoneMsg = ''
-    const onDone = (msg: string) => { onDoneMsg = msg }
-    const result = await callVault(onDone as Parameters<typeof callVault>[0], {} as Parameters<typeof callVault>[1], 'list')
+    const onDone = (msg: string) => {
+      onDoneMsg = msg
+    }
+    const result = await callVault(
+      onDone as Parameters<typeof callVault>[0],
+      {} as Parameters<typeof callVault>[1],
+      'list',
+    )
     expect(onDoneMsg).toMatch(/1 vault/)
     expect(result).not.toBeNull()
   })
@@ -84,8 +98,14 @@ describe('callVault list', () => {
   test('empty vault list shows friendly message', async () => {
     axiosGetMock.mockResolvedValueOnce({ data: { data: [] }, status: 200 })
     let onDoneMsg = ''
-    const onDone = (msg: string) => { onDoneMsg = msg }
-    await callVault(onDone as Parameters<typeof callVault>[0], {} as Parameters<typeof callVault>[1], '')
+    const onDone = (msg: string) => {
+      onDoneMsg = msg
+    }
+    await callVault(
+      onDone as Parameters<typeof callVault>[0],
+      {} as Parameters<typeof callVault>[1],
+      '',
+    )
     expect(onDoneMsg).toMatch(/no vaults/i)
   })
 
@@ -96,11 +116,18 @@ describe('callVault list', () => {
     })
     axiosGetMock.mockRejectedValueOnce(err)
     axiosIsAxiosError.mockImplementation(
-      (e: unknown) => typeof e === 'object' && e !== null && 'isAxiosError' in e,
+      (e: unknown) =>
+        typeof e === 'object' && e !== null && 'isAxiosError' in e,
     )
     let onDoneMsg = ''
-    const onDone = (msg: string) => { onDoneMsg = msg }
-    await callVault(onDone as Parameters<typeof callVault>[0], {} as Parameters<typeof callVault>[1], 'list')
+    const onDone = (msg: string) => {
+      onDoneMsg = msg
+    }
+    await callVault(
+      onDone as Parameters<typeof callVault>[0],
+      {} as Parameters<typeof callVault>[1],
+      'list',
+    )
     expect(onDoneMsg).toMatch(/failed|error|login|authenticate/i)
   })
 })
@@ -113,16 +140,28 @@ describe('callVault create', () => {
       status: 201,
     })
     let onDoneMsg = ''
-    const onDone = (msg: string) => { onDoneMsg = msg }
-    await callVault(onDone as Parameters<typeof callVault>[0], {} as Parameters<typeof callVault>[1], 'create My Vault')
+    const onDone = (msg: string) => {
+      onDoneMsg = msg
+    }
+    await callVault(
+      onDone as Parameters<typeof callVault>[0],
+      {} as Parameters<typeof callVault>[1],
+      'create My Vault',
+    )
     expect(onDoneMsg).toMatch(/created/)
     expect(onDoneMsg).toMatch(/vault_new/)
   })
 
   test('create with no name → invalid args message', async () => {
     let onDoneMsg = ''
-    const onDone = (msg: string) => { onDoneMsg = msg }
-    await callVault(onDone as Parameters<typeof callVault>[0], {} as Parameters<typeof callVault>[1], 'create')
+    const onDone = (msg: string) => {
+      onDoneMsg = msg
+    }
+    await callVault(
+      onDone as Parameters<typeof callVault>[0],
+      {} as Parameters<typeof callVault>[1],
+      'create',
+    )
     expect(onDoneMsg).toMatch(/usage|name/i)
   })
 })
@@ -135,16 +174,28 @@ describe('callVault get', () => {
       status: 200,
     })
     let onDoneMsg = ''
-    const onDone = (msg: string) => { onDoneMsg = msg }
-    const result = await callVault(onDone as Parameters<typeof callVault>[0], {} as Parameters<typeof callVault>[1], 'get vault_123')
+    const onDone = (msg: string) => {
+      onDoneMsg = msg
+    }
+    const result = await callVault(
+      onDone as Parameters<typeof callVault>[0],
+      {} as Parameters<typeof callVault>[1],
+      'get vault_123',
+    )
     expect(onDoneMsg).toMatch(/fetched/i)
     expect(result).not.toBeNull()
   })
 
   test('get with no id → invalid args', async () => {
     let onDoneMsg = ''
-    const onDone = (msg: string) => { onDoneMsg = msg }
-    await callVault(onDone as Parameters<typeof callVault>[0], {} as Parameters<typeof callVault>[1], 'get')
+    const onDone = (msg: string) => {
+      onDoneMsg = msg
+    }
+    await callVault(
+      onDone as Parameters<typeof callVault>[0],
+      {} as Parameters<typeof callVault>[1],
+      'get',
+    )
     expect(onDoneMsg).toMatch(/usage|id/i)
   })
 })
@@ -153,12 +204,22 @@ describe('callVault get', () => {
 describe('callVault archive', () => {
   test('archives vault and confirms in onDone', async () => {
     axiosPostMock.mockResolvedValueOnce({
-      data: { vault_id: 'vault_arc', name: 'Old', archived_at: '2026-01-01T00:00:00Z' },
+      data: {
+        vault_id: 'vault_arc',
+        name: 'Old',
+        archived_at: '2026-01-01T00:00:00Z',
+      },
       status: 200,
     })
     let onDoneMsg = ''
-    const onDone = (msg: string) => { onDoneMsg = msg }
-    await callVault(onDone as Parameters<typeof callVault>[0], {} as Parameters<typeof callVault>[1], 'archive vault_arc')
+    const onDone = (msg: string) => {
+      onDoneMsg = msg
+    }
+    await callVault(
+      onDone as Parameters<typeof callVault>[0],
+      {} as Parameters<typeof callVault>[1],
+      'archive vault_arc',
+    )
     expect(onDoneMsg).toMatch(/archived/i)
   })
 })
@@ -171,7 +232,9 @@ describe('callVault add-credential', () => {
       status: 201,
     })
     let onDoneMsg = ''
-    const onDone = (msg: string) => { onDoneMsg = msg }
+    const onDone = (msg: string) => {
+      onDoneMsg = msg
+    }
     await callVault(
       onDone as Parameters<typeof callVault>[0],
       {} as Parameters<typeof callVault>[1],
@@ -185,7 +248,9 @@ describe('callVault add-credential', () => {
 
   test('add-credential missing value → invalid args', async () => {
     let onDoneMsg = ''
-    const onDone = (msg: string) => { onDoneMsg = msg }
+    const onDone = (msg: string) => {
+      onDoneMsg = msg
+    }
     await callVault(
       onDone as Parameters<typeof callVault>[0],
       {} as Parameters<typeof callVault>[1],
@@ -200,7 +265,9 @@ describe('callVault add-credential', () => {
       status: 201,
     })
     const messages: string[] = []
-    const onDone = (msg: string) => { messages.push(msg) }
+    const onDone = (msg: string) => {
+      messages.push(msg)
+    }
     await callVault(
       onDone as Parameters<typeof callVault>[0],
       {} as Parameters<typeof callVault>[1],
@@ -225,7 +292,9 @@ describe('callVault archive-credential', () => {
       status: 200,
     })
     let onDoneMsg = ''
-    const onDone = (msg: string) => { onDoneMsg = msg }
+    const onDone = (msg: string) => {
+      onDoneMsg = msg
+    }
     await callVault(
       onDone as Parameters<typeof callVault>[0],
       {} as Parameters<typeof callVault>[1],
@@ -236,7 +305,9 @@ describe('callVault archive-credential', () => {
 
   test('archive-credential missing cred_id → invalid args', async () => {
     let onDoneMsg = ''
-    const onDone = (msg: string) => { onDoneMsg = msg }
+    const onDone = (msg: string) => {
+      onDoneMsg = msg
+    }
     await callVault(
       onDone as Parameters<typeof callVault>[0],
       {} as Parameters<typeof callVault>[1],
@@ -250,7 +321,9 @@ describe('callVault archive-credential', () => {
 describe('callVault invalid subcommand', () => {
   test('unknown subcommand → usage message in onDone', async () => {
     let onDoneMsg = ''
-    const onDone = (msg: string) => { onDoneMsg = msg }
+    const onDone = (msg: string) => {
+      onDoneMsg = msg
+    }
     await callVault(
       onDone as Parameters<typeof callVault>[0],
       {} as Parameters<typeof callVault>[1],

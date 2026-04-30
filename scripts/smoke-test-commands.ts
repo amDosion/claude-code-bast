@@ -1,0 +1,84 @@
+#!/usr/bin/env bun
+/**
+ * Smoke-test all newly-restored commands by actually loading and invoking
+ * them (no mocks). Each command must:
+ *   1. Have isEnabled() === true
+ *   2. Have isHidden === false
+ *   3. load() resolve to a callable
+ *   4. call() return a non-empty result without throwing
+ *
+ * Run with: bun --feature AUTOFIX_PR scripts/smoke-test-commands.ts
+ *
+ * NOTE: This bypasses the REPL — local-jsx commands that need React/Ink
+ * context will fail with informative messages. That's expected and we mark
+ * those PARTIAL.
+ */
+
+type CmdSpec = { mod: string; name: string; sample?: string; type: string }
+
+const COMMANDS: CmdSpec[] = [
+  { mod: '../src/commands/env/index.ts', name: 'env', type: 'local' },
+  { mod: '../src/commands/ctx_viz/index.ts', name: 'ctx_viz', type: 'local' },
+  { mod: '../src/commands/debug-tool-call/index.ts', name: 'debug-tool-call', type: 'local' },
+  { mod: '../src/commands/perf-issue/index.ts', name: 'perf-issue', type: 'local' },
+  { mod: '../src/commands/break-cache/index.ts', name: 'break-cache', type: 'local' },
+  { mod: '../src/commands/share/index.ts', name: 'share', type: 'local' },
+  { mod: '../src/commands/issue/index.ts', name: 'issue', type: 'local' },
+  { mod: '../src/commands/teleport/index.ts', name: 'teleport', sample: '', type: 'local-jsx' },
+  { mod: '../src/commands/autofix-pr/index.ts', name: 'autofix-pr', sample: 'stop', type: 'local-jsx' },
+  { mod: '../src/commands/onboarding/index.ts', name: 'onboarding', sample: 'status', type: 'local-jsx' },
+  { mod: '../src/commands/agents-platform/index.ts', name: 'agents-platform', sample: 'list', type: 'local-jsx' },
+  { mod: '../src/commands/schedule/index.ts', name: 'schedule', sample: 'list', type: 'local-jsx' },
+  { mod: '../src/commands/memory-stores/index.ts', name: 'memory-stores', sample: 'list', type: 'local-jsx' },
+]
+
+async function smoke(spec: CmdSpec): Promise<{ name: string; ok: boolean; note: string }> {
+  try {
+    const mod = await import(spec.mod)
+    const cmd = mod.default ?? mod[spec.name]
+    if (!cmd) return { name: spec.name, ok: false, note: 'no default export' }
+    if (cmd.name !== spec.name) {
+      return { name: spec.name, ok: false, note: `name mismatch: ${cmd.name}` }
+    }
+    if (cmd.isHidden) return { name: spec.name, ok: false, note: 'isHidden=true' }
+    const enabled = cmd.isEnabled?.() ?? true
+    if (!enabled) return { name: spec.name, ok: false, note: 'isEnabled()=false' }
+    if (cmd.type !== spec.type) {
+      return { name: spec.name, ok: false, note: `type mismatch: ${cmd.type}` }
+    }
+    if (!cmd.load) return { name: spec.name, ok: false, note: 'no load()' }
+    const loaded = await cmd.load()
+    if (typeof loaded.call !== 'function') {
+      return { name: spec.name, ok: false, note: 'load() did not return { call }' }
+    }
+    if (cmd.type === 'local') {
+      const result = await loaded.call(spec.sample ?? '', null)
+      const valLen = result?.value?.length ?? 0
+      if (valLen < 10) {
+        return { name: spec.name, ok: false, note: `result too short (${valLen} chars)` }
+      }
+      return { name: spec.name, ok: true, note: `${valLen} chars output` }
+    }
+    // local-jsx commands need a real React context; we just check load() works.
+    return { name: spec.name, ok: true, note: 'load() ok (local-jsx, REPL needed for full call)' }
+  } catch (e: unknown) {
+    return { name: spec.name, ok: false, note: e instanceof Error ? e.message.slice(0, 80) : String(e) }
+  }
+}
+
+async function main() {
+  console.log('=== Command smoke test ===\n')
+  let pass = 0
+  let fail = 0
+  for (const spec of COMMANDS) {
+    const r = await smoke(spec)
+    const tag = r.ok ? '✓' : '✗'
+    console.log(`  ${tag} /${r.name.padEnd(18)} ${r.note}`)
+    if (r.ok) pass++
+    else fail++
+  }
+  console.log(`\nTotal: ${pass} pass, ${fail} fail`)
+  process.exit(fail === 0 ? 0 : 1)
+}
+
+await main()

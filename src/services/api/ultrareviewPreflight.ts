@@ -13,7 +13,9 @@ const UltrareviewPreflightSchema = z.object({
   billing_note: z.string().nullable().optional(),
 })
 
-export type UltrareviewPreflightResponse = z.infer<typeof UltrareviewPreflightSchema>
+export type UltrareviewPreflightResponse = z.infer<
+  typeof UltrareviewPreflightSchema
+>
 
 export type UltrareviewPreflightArgs = {
   repo: string

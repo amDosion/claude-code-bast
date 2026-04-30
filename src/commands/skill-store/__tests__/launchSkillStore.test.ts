@@ -43,11 +43,12 @@ mock.module('src/utils/teleport/api.js', () => ({
   getOAuthHeaders: (token: string) => ({ Authorization: `Bearer ${token}` }),
 }))
 
-// ── envUtils mock ────────────────────────────────────────────────────────────
+// ── envUtils config dir injection ────────────────────────────────────────────
+// Don't mock the envUtils module — that's process-level and leaks to other
+// tests' getClaudeConfigHomeDir consumers (see feedback_mock_dependency_not_subject).
+// Instead inject CLAUDE_CONFIG_DIR via process.env and clear the lodash memoize
+// cache around each test so the real getClaudeConfigHomeDir reads our value.
 const mockConfigDir = '/tmp/test-claude-config'
-mock.module('src/utils/envUtils.js', () => ({
-  getClaudeConfigHomeDir: () => mockConfigDir,
-}))
 
 // ── Axios mock ──────────────────────────────────────────────────────────────
 const axiosGetMock = mock(async () => ({}))
@@ -83,10 +84,15 @@ mock.module('node:fs/promises', () => ({
 
 // ── Lazy imports ─────────────────────────────────────────────────────────────
 let callSkillStore: typeof import('../launchSkillStore.js').callSkillStore
+let getClaudeConfigHomeDir: typeof import('../../../utils/envUtils.js').getClaudeConfigHomeDir
+let origConfigDir: string | undefined
 
 beforeAll(async () => {
   const mod = await import('../launchSkillStore.js')
   callSkillStore = mod.callSkillStore
+  const envMod = await import('../../../utils/envUtils.js')
+  getClaudeConfigHomeDir = envMod.getClaudeConfigHomeDir
+  origConfigDir = process.env.CLAUDE_CONFIG_DIR
 })
 
 beforeEach(() => {
@@ -96,9 +102,21 @@ beforeEach(() => {
   mkdirMock.mockClear()
   writeFileMock.mockClear()
   logEventMock.mockClear()
+  // Inject our mock config dir + bust lodash memoize so real
+  // getClaudeConfigHomeDir reads the freshly-set env var.
+  process.env.CLAUDE_CONFIG_DIR = mockConfigDir
+  getClaudeConfigHomeDir.cache?.clear?.()
 })
 
-afterEach(() => {})
+afterEach(() => {
+  // Restore env so we don't leak mockConfigDir into other test files.
+  if (origConfigDir === undefined) {
+    delete process.env.CLAUDE_CONFIG_DIR
+  } else {
+    process.env.CLAUDE_CONFIG_DIR = origConfigDir
+  }
+  getClaudeConfigHomeDir.cache?.clear?.()
+})
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 function makeOnDone() {

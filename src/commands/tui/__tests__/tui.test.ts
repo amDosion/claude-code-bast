@@ -1,11 +1,4 @@
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from 'bun:test'
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import {
   existsSync,
   mkdirSync,
@@ -15,6 +8,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { getClaudeConfigHomeDir } from '../../../utils/envUtils.js'
 
 mock.module('bun:bundle', () => ({
   feature: (_name: string) => true,
@@ -34,6 +28,10 @@ beforeEach(() => {
   claudeDir = join(tmpDir, '.claude')
   mkdirSync(claudeDir, { recursive: true })
   process.env.CLAUDE_CONFIG_DIR = claudeDir
+  // getClaudeConfigHomeDir is `memoize(...)` — clear its cache so this
+  // suite's CLAUDE_CONFIG_DIR overrides any value cached by an earlier
+  // test file in the same process.
+  getClaudeConfigHomeDir.cache?.clear?.()
   // Save env vars we may mutate
   origEnv.CLAUDE_CODE_NO_FLICKER = process.env.CLAUDE_CODE_NO_FLICKER
   delete process.env.CLAUDE_CODE_NO_FLICKER
@@ -51,13 +49,18 @@ afterEach(() => {
 })
 
 // Helper: invoke the command's call function
-async function invokeCmd(args: string): Promise<{ type: string; value: string }> {
+async function invokeCmd(
+  args: string,
+): Promise<{ type: string; value: string }> {
   const mod = await import('../index.js')
   const cmd = mod.default
   const loaded = await (
     cmd as unknown as {
       load: () => Promise<{
-        call: (args: string, ctx: never) => Promise<{ type: string; value: string }>
+        call: (
+          args: string,
+          ctx: never,
+        ) => Promise<{ type: string; value: string }>
       }>
     }
   ).load()

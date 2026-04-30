@@ -6,7 +6,7 @@ import { describe, test, expect, mock, beforeEach } from 'bun:test'
 // transitively so sibling test files are not broken by an incomplete mock.
 
 const mockGetMainLoopModel = mock(() => 'claude-opus-4-7')
-const mockGetDisplayedEffortLevel = mock(() => 'high' as const)
+const mockGetDisplayedEffortLevel = mock((): string => 'high')
 
 mock.module('src/utils/model/model.js', () => ({
   getMainLoopModel: mockGetMainLoopModel,
@@ -39,7 +39,10 @@ mock.module('src/utils/model/model.js', () => ({
 }))
 
 mock.module('src/utils/effort.js', () => ({
-  getDisplayedEffortLevel: mockGetDisplayedEffortLevel,
+  getDisplayedEffortLevel: mockGetDisplayedEffortLevel as (
+    _m: string,
+    _e: unknown,
+  ) => string,
   getEffortEnvOverride: mock(() => undefined),
   resolveAppliedEffort: mock(() => 'high'),
   getInitialEffortSetting: mock(() => undefined),
@@ -109,7 +112,11 @@ describe('buildMagicDocsUpdatePrompt – dynamic variable substitution', () => {
     mockReadFile.mockImplementation(async () => 'Model: {{CLAUDE_MODEL}}')
     mockGetMainLoopModel.mockReturnValue('claude-opus-4-7')
 
-    const result = await buildMagicDocsUpdatePrompt('contents', '/doc.md', 'Title')
+    const result = await buildMagicDocsUpdatePrompt(
+      'contents',
+      '/doc.md',
+      'Title',
+    )
     expect(result).toContain('Model: claude-opus-4-7')
     expect(result).not.toContain('{{CLAUDE_MODEL}}')
   })
@@ -118,7 +125,11 @@ describe('buildMagicDocsUpdatePrompt – dynamic variable substitution', () => {
     mockReadFile.mockImplementation(async () => 'Effort: {{CLAUDE_EFFORT}}')
     mockGetDisplayedEffortLevel.mockReturnValue('high')
 
-    const result = await buildMagicDocsUpdatePrompt('contents', '/doc.md', 'Title')
+    const result = await buildMagicDocsUpdatePrompt(
+      'contents',
+      '/doc.md',
+      'Title',
+    )
     expect(result).toContain('Effort: high')
     expect(result).not.toContain('{{CLAUDE_EFFORT}}')
   })
@@ -126,41 +137,61 @@ describe('buildMagicDocsUpdatePrompt – dynamic variable substitution', () => {
   test('substitutes {{CLAUDE_CWD}} with process.cwd()', async () => {
     mockReadFile.mockImplementation(async () => 'CWD: {{CLAUDE_CWD}}')
 
-    const result = await buildMagicDocsUpdatePrompt('contents', '/doc.md', 'Title')
+    const result = await buildMagicDocsUpdatePrompt(
+      'contents',
+      '/doc.md',
+      'Title',
+    )
     expect(result).toContain(`CWD: ${process.cwd()}`)
     expect(result).not.toContain('{{CLAUDE_CWD}}')
   })
 
   test('substitutes all three dynamic variables in one template', async () => {
     mockReadFile.mockImplementation(
-      async () => 'effort={{CLAUDE_EFFORT}} model={{CLAUDE_MODEL}} cwd={{CLAUDE_CWD}}',
+      async () =>
+        'effort={{CLAUDE_EFFORT}} model={{CLAUDE_MODEL}} cwd={{CLAUDE_CWD}}',
     )
     mockGetMainLoopModel.mockReturnValue('claude-sonnet-4-6')
     mockGetDisplayedEffortLevel.mockReturnValue('medium')
 
-    const result = await buildMagicDocsUpdatePrompt('contents', '/doc.md', 'Title')
+    const result = await buildMagicDocsUpdatePrompt(
+      'contents',
+      '/doc.md',
+      'Title',
+    )
     expect(result).toContain('effort=medium')
     expect(result).toContain('model=claude-sonnet-4-6')
     expect(result).toContain(`cwd=${process.cwd()}`)
   })
 
   test('leaves unknown template variables unchanged', async () => {
-    mockReadFile.mockImplementation(async () => '{{UNKNOWN_VAR}} {{CLAUDE_MODEL}}')
+    mockReadFile.mockImplementation(
+      async () => '{{UNKNOWN_VAR}} {{CLAUDE_MODEL}}',
+    )
     mockGetMainLoopModel.mockReturnValue('claude-opus-4-7')
 
-    const result = await buildMagicDocsUpdatePrompt('contents', '/doc.md', 'Title')
+    const result = await buildMagicDocsUpdatePrompt(
+      'contents',
+      '/doc.md',
+      'Title',
+    )
     expect(result).toContain('{{UNKNOWN_VAR}}')
     expect(result).toContain('claude-opus-4-7')
   })
 
   test('existing substitution variables still work alongside new ones', async () => {
     mockReadFile.mockImplementation(
-      async () => '{{docTitle}} effort={{CLAUDE_EFFORT}} model={{CLAUDE_MODEL}}',
+      async () =>
+        '{{docTitle}} effort={{CLAUDE_EFFORT}} model={{CLAUDE_MODEL}}',
     )
     mockGetMainLoopModel.mockReturnValue('claude-haiku')
     mockGetDisplayedEffortLevel.mockReturnValue('low')
 
-    const result = await buildMagicDocsUpdatePrompt('contents', '/doc.md', 'My Doc')
+    const result = await buildMagicDocsUpdatePrompt(
+      'contents',
+      '/doc.md',
+      'My Doc',
+    )
     expect(result).toContain('My Doc')
     expect(result).toContain('effort=low')
     expect(result).toContain('model=claude-haiku')

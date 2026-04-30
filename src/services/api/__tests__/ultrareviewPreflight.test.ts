@@ -39,8 +39,10 @@ mock.module('src/utils/teleport/api.js', () => ({
   }),
 }))
 
-// We'll mock axios at module level
-const mockAxiosPost = mock(async (_url: unknown, _body: unknown, _config: unknown) => {
+// We'll mock axios at module level.
+// Typed as any in test code (CLAUDE.md: mock data may use as any).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockAxiosPost = mock(async (..._args: any[]): Promise<any> => {
   throw new Error('not configured')
 })
 
@@ -48,7 +50,9 @@ mock.module('axios', () => {
   const axiosMock = {
     post: mockAxiosPost,
     isAxiosError: (e: unknown) =>
-      typeof e === 'object' && e !== null && (e as { isAxiosError?: boolean }).isAxiosError === true,
+      typeof e === 'object' &&
+      e !== null &&
+      (e as { isAxiosError?: boolean }).isAxiosError === true,
   }
   return { default: axiosMock, ...axiosMock }
 })
@@ -129,8 +133,15 @@ describe('fetchUltrareviewPreflight', () => {
 
   test('returns null on 401 Unauthorized', async () => {
     const authError = new Error('Unauthorized')
-    ;(authError as unknown as { isAxiosError: boolean; response: { status: number } }).isAxiosError = true
-    ;(authError as unknown as { response: { status: number } }).response = { status: 401 }
+    ;(
+      authError as unknown as {
+        isAxiosError: boolean
+        response: { status: number }
+      }
+    ).isAxiosError = true
+    ;(authError as unknown as { response: { status: number } }).response = {
+      status: 401,
+    }
     mockAxiosPost.mockImplementationOnce(async () => {
       throw authError
     })
@@ -141,8 +152,14 @@ describe('fetchUltrareviewPreflight', () => {
 
   test('returns null on 403 Forbidden', async () => {
     const forbiddenError = new Error('Forbidden')
-    ;(forbiddenError as unknown as { isAxiosError: boolean; response: { status: number } }).isAxiosError = true
-    ;(forbiddenError as unknown as { response: { status: number } }).response = { status: 403 }
+    ;(
+      forbiddenError as unknown as {
+        isAxiosError: boolean
+        response: { status: number }
+      }
+    ).isAxiosError = true
+    ;(forbiddenError as unknown as { response: { status: number } }).response =
+      { status: 403 }
     mockAxiosPost.mockImplementationOnce(async () => {
       throw forbiddenError
     })
@@ -153,8 +170,15 @@ describe('fetchUltrareviewPreflight', () => {
 
   test('returns null on 5xx server error', async () => {
     const serverError = new Error('Internal Server Error')
-    ;(serverError as unknown as { isAxiosError: boolean; response: { status: number } }).isAxiosError = true
-    ;(serverError as unknown as { response: { status: number } }).response = { status: 500 }
+    ;(
+      serverError as unknown as {
+        isAxiosError: boolean
+        response: { status: number }
+      }
+    ).isAxiosError = true
+    ;(serverError as unknown as { response: { status: number } }).response = {
+      status: 500,
+    }
     mockAxiosPost.mockImplementationOnce(async () => {
       throw serverError
     })
@@ -164,24 +188,34 @@ describe('fetchUltrareviewPreflight', () => {
   })
 
   test('passes pr_number to request body when provided', async () => {
-    mockAxiosPost.mockImplementationOnce(async (_url: unknown, body: unknown) => {
-      const b = body as { pr_number: number }
-      expect(b.pr_number).toBe(42)
-      return { status: 200, data: { action: 'proceed', billing_note: null } }
-    })
+    mockAxiosPost.mockImplementationOnce(
+      async (_url: unknown, body: unknown) => {
+        const b = body as { pr_number: number }
+        expect(b.pr_number).toBe(42)
+        return { status: 200, data: { action: 'proceed', billing_note: null } }
+      },
+    )
 
-    const result = await fetchUltrareviewPreflight({ repo: 'owner/repo', pr_number: 42 })
+    const result = await fetchUltrareviewPreflight({
+      repo: 'owner/repo',
+      pr_number: 42,
+    })
     expect(result?.action).toBe('proceed')
   })
 
   test('passes confirm flag to request body when provided', async () => {
-    mockAxiosPost.mockImplementationOnce(async (_url: unknown, body: unknown) => {
-      const b = body as { confirm: boolean }
-      expect(b.confirm).toBe(true)
-      return { status: 200, data: { action: 'proceed', billing_note: null } }
-    })
+    mockAxiosPost.mockImplementationOnce(
+      async (_url: unknown, body: unknown) => {
+        const b = body as { confirm: boolean }
+        expect(b.confirm).toBe(true)
+        return { status: 200, data: { action: 'proceed', billing_note: null } }
+      },
+    )
 
-    const result = await fetchUltrareviewPreflight({ repo: 'owner/repo', confirm: true })
+    const result = await fetchUltrareviewPreflight({
+      repo: 'owner/repo',
+      confirm: true,
+    })
     expect(result?.action).toBe('proceed')
   })
 })

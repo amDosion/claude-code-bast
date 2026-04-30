@@ -127,10 +127,7 @@ function classifyError(err: unknown, id?: string): VaultsApiError {
       )
     }
     if (status === 404) {
-      return new VaultsApiError(
-        `Vault or credential not found${safeId}.`,
-        404,
-      )
+      return new VaultsApiError(`Vault or credential not found${safeId}.`, 404)
     }
     if (status === 429) {
       const retryAfter =
@@ -146,10 +143,7 @@ function classifyError(err: unknown, id?: string): VaultsApiError {
     return new VaultsApiError(msg, status)
   }
   if (err instanceof VaultsApiError) return err
-  return new VaultsApiError(
-    err instanceof Error ? err.message : String(err),
-    0,
-  )
+  return new VaultsApiError(err instanceof Error ? err.message : String(err), 0)
 }
 
 /**
@@ -166,10 +160,7 @@ function parseRetryAfterMs(header: string | undefined): number | null {
   return null
 }
 
-async function withRetry<T>(
-  fn: () => Promise<T>,
-  id?: string,
-): Promise<T> {
+async function withRetry<T>(fn: () => Promise<T>, id?: string): Promise<T> {
   let lastErr: VaultsApiError | undefined
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {

@@ -93,6 +93,10 @@ import {
   asSystemPrompt,
   type SystemPrompt,
 } from '../../utils/systemPromptType.js'
+import {
+  getBreakCacheMarkerPath,
+  getBreakCacheAlwaysPath,
+} from '../../commands/break-cache/index.js'
 import { tokenCountFromLastAPIResponse } from '../../utils/tokens.js'
 import { getDynamicConfig_BLOCKS_ON_INIT } from '../analytics/growthbook.js'
 import {
@@ -230,7 +234,11 @@ import { getInitializationStatus } from '../lsp/manager.js'
 import { isToolFromMcpServer } from '../mcp/utils.js'
 import { recordLLMObservation } from '../langfuse/index.js'
 import type { LangfuseSpan } from '../langfuse/index.js'
-import { convertMessagesToLangfuse, convertOutputToLangfuse, convertToolsToLangfuse } from '../langfuse/convert.js'
+import {
+  convertMessagesToLangfuse,
+  convertOutputToLangfuse,
+  convertToolsToLangfuse,
+} from '../langfuse/convert.js'
 import { withStreamingVCR, withVCR } from '../vcr.js'
 import { CLIENT_REQUEST_ID_HEADER, getAnthropicClient } from './client.js'
 import {
@@ -442,7 +450,7 @@ function configureEffortParams(
     betas.push(EFFORT_BETA_HEADER)
   } else if (typeof effortValue === 'string') {
     // Send string effort level as is
-    outputConfig.effort = effortValue as "high" | "medium" | "low" | "max"
+    outputConfig.effort = effortValue as 'high' | 'medium' | 'low' | 'max'
     betas.push(EFFORT_BETA_HEADER)
   } else if (process.env.USER_TYPE === 'ant') {
     // Numeric effort override - ant-only (uses anthropic_internal)
@@ -615,7 +623,8 @@ export function userMessageToMessageParam(
     role: 'user',
     content: (Array.isArray(message.message!.content)
       ? [...message.message!.content]
-      : message.message!.content) as import('@anthropic-ai/sdk/resources/beta/messages/messages.js').BetaContentBlockParam[],
+      : message.message!
+          .content) as import('@anthropic-ai/sdk/resources/beta/messages/messages.js').BetaContentBlockParam[],
   }
 }
 
@@ -666,7 +675,9 @@ export function assistantMessageToMessageParam(
     content:
       typeof message.message!.content === 'string'
         ? message.message!.content
-        : message.message!.content!.map(stripGeminiProviderMetadata) as BetaContentBlockParam[],
+        : (message.message!.content!.map(
+            stripGeminiProviderMetadata,
+          ) as BetaContentBlockParam[]),
   }
 }
 
@@ -681,10 +692,8 @@ function stripGeminiProviderMetadata<T extends BetaContentBlockParam | string>(
   }
 
   const obj = contentBlock as unknown as Record<string, unknown>
-  const {
-    _geminiThoughtSignature: _unusedGeminiThoughtSignature,
-    ...rest
-  } = obj
+  const { _geminiThoughtSignature: _unusedGeminiThoughtSignature, ...rest } =
+    obj
   return rest as unknown as T
 }
 
@@ -1343,7 +1352,13 @@ async function* queryModel(
     // OpenAI emulates Anthropic's dynamic tool loading client-side. It needs
     // the full tool pool so ToolSearchTool can search deferred MCP tools that
     // were intentionally filtered out of the initial API tool list above.
-    yield* queryModelOpenAI(messagesForAPI, systemPrompt, tools, signal, options)
+    yield* queryModelOpenAI(
+      messagesForAPI,
+      systemPrompt,
+      tools,
+      signal,
+      options,
+    )
     return
   }
 
@@ -1362,7 +1377,13 @@ async function* queryModel(
 
   if (getAPIProvider() === 'grok') {
     const { queryModelGrok } = await import('./grok/index.js')
-    yield* queryModelGrok(messagesForAPI, systemPrompt, filteredTools, signal, options)
+    yield* queryModelGrok(
+      messagesForAPI,
+      systemPrompt,
+      filteredTools,
+      signal,
+      options,
+    )
     return
   }
 
@@ -1419,6 +1440,33 @@ async function* queryModel(
       ...(injectChromeHere ? [CHROME_TOOL_SEARCH_INSTRUCTIONS] : []),
     ].filter(Boolean),
   )
+
+  // ── Break-cache integration ──
+  // If a one-time break-cache marker exists, or always-mode is on, append a
+  // unique ephemeral nonce comment to the system prompt so the prefix-cache
+  // hash changes for this request, forcing a cache miss.
+  {
+    const { existsSync, unlinkSync } = await import('node:fs')
+    const { randomUUID } = await import('node:crypto')
+    const onceMarker = getBreakCacheMarkerPath()
+    const alwaysFlag = getBreakCacheAlwaysPath()
+    const shouldBreak = existsSync(onceMarker) || existsSync(alwaysFlag)
+    if (shouldBreak) {
+      const nonce = randomUUID()
+      systemPrompt = asSystemPrompt([
+        ...systemPrompt,
+        `<!-- cache-break nonce: ${nonce} -->`,
+      ])
+      // Only delete the once marker; the always flag persists until /break-cache off
+      if (existsSync(onceMarker)) {
+        try {
+          unlinkSync(onceMarker)
+        } catch {
+          /* best-effort */
+        }
+      }
+    }
+  }
 
   // Prepend system prompt block for easy API identification
   logAPIPrefix(systemPrompt)
@@ -2127,7 +2175,8 @@ async function* queryModel(
                 })
                 throw new Error('Content block is not a connector_text block')
               }
-              ;(contentBlock as { connector_text: string }).connector_text += delta.connector_text
+              ;(contentBlock as { connector_text: string }).connector_text +=
+                delta.connector_text
             } else {
               switch (delta.type) {
                 case 'citations_delta':
@@ -2206,7 +2255,8 @@ async function* queryModel(
                     })
                     throw new Error('Content block is not a thinking block')
                   }
-                  ;(contentBlock as { thinking: string }).thinking += delta.thinking
+                  ;(contentBlock as { thinking: string }).thinking +=
+                    delta.thinking
                   break
               }
             }
@@ -2298,7 +2348,10 @@ async function* queryModel(
             }
 
             // Update cost
-            const costUSDForPart = calculateUSDCost(resolvedModel, usage as unknown as BetaUsage)
+            const costUSDForPart = calculateUSDCost(
+              resolvedModel,
+              usage as unknown as BetaUsage,
+            )
             costUSD += addToTotalSessionCost(
               costUSDForPart,
               usage as unknown as BetaUsage,
@@ -2887,10 +2940,14 @@ async function* queryModel(
     // message_delta handler before any yield. Fallback pushes to newMessages
     // then yields, so tracking must be here to survive .return() at the yield.
     if (fallbackMessage) {
-      const fallbackUsage = fallbackMessage.message.usage as BetaMessageDeltaUsage
+      const fallbackUsage = fallbackMessage.message
+        .usage as BetaMessageDeltaUsage
       usage = updateUsage(EMPTY_USAGE, fallbackUsage)
       stopReason = fallbackMessage.message.stop_reason as BetaStopReason
-      const fallbackCost = calculateUSDCost(resolvedModel, fallbackUsage as unknown as BetaUsage)
+      const fallbackCost = calculateUSDCost(
+        resolvedModel,
+        fallbackUsage as unknown as BetaUsage,
+      )
       costUSD += addToTotalSessionCost(
         fallbackCost,
         fallbackUsage as unknown as BetaUsage,
@@ -2946,7 +3003,9 @@ async function* queryModel(
   void options.getToolPermissionContext().then(permissionContext => {
     logAPISuccessAndDuration({
       model:
-        (newMessages[0]?.message.model as string | undefined) ?? partialMessage?.model ?? options.model,
+        (newMessages[0]?.message.model as string | undefined) ??
+        partialMessage?.model ??
+        options.model,
       preNormalizedModel: options.model,
       usage,
       start,

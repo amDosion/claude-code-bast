@@ -6,7 +6,7 @@ import { describe, test, expect, mock, beforeEach } from 'bun:test'
 // transitively so sibling test files are not broken by an incomplete mock.
 
 const mockGetMainLoopModel = mock(() => 'claude-opus-4-7')
-const mockGetDisplayedEffortLevel = mock(() => 'high' as const)
+const mockGetDisplayedEffortLevel = mock((): string => 'high')
 
 mock.module('src/utils/model/model.js', () => ({
   getMainLoopModel: mockGetMainLoopModel,
@@ -39,7 +39,10 @@ mock.module('src/utils/model/model.js', () => ({
 }))
 
 mock.module('src/utils/effort.js', () => ({
-  getDisplayedEffortLevel: mockGetDisplayedEffortLevel,
+  getDisplayedEffortLevel: mockGetDisplayedEffortLevel as (
+    _m: string,
+    _e: unknown,
+  ) => string,
   getEffortEnvOverride: mock(() => undefined),
   resolveAppliedEffort: mock(() => 'high'),
   getInitialEffortSetting: mock(() => undefined),
@@ -93,7 +96,9 @@ mock.module('src/services/tokenEstimation.js', () => ({
 
 mock.module('src/utils/errors.js', () => ({
   getErrnoCode: mock((e: unknown) => (e as NodeJS.ErrnoException)?.code),
-  toError: mock((e: unknown) => (e instanceof Error ? e : new Error(String(e)))),
+  toError: mock((e: unknown) =>
+    e instanceof Error ? e : new Error(String(e)),
+  ),
 }))
 
 // Mock fs/promises so loadSessionMemoryPrompt() and loadSessionMemoryTemplate()
@@ -125,7 +130,8 @@ describe('buildSessionMemoryUpdatePrompt – dynamic variable substitution', () 
 
   test('substitutes {{CLAUDE_MODEL}} with the current model', async () => {
     mockReadFileFsPromises.mockImplementation(async (path: string) => {
-      if ((path as string).includes('prompt.md')) return 'Model: {{CLAUDE_MODEL}}'
+      if ((path as string).includes('prompt.md'))
+        return 'Model: {{CLAUDE_MODEL}}'
       throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
     })
     mockGetMainLoopModel.mockReturnValue('claude-opus-4-7')
@@ -137,7 +143,8 @@ describe('buildSessionMemoryUpdatePrompt – dynamic variable substitution', () 
 
   test('substitutes {{CLAUDE_EFFORT}} with the current effort level', async () => {
     mockReadFileFsPromises.mockImplementation(async (path: string) => {
-      if ((path as string).includes('prompt.md')) return 'Effort: {{CLAUDE_EFFORT}}'
+      if ((path as string).includes('prompt.md'))
+        return 'Effort: {{CLAUDE_EFFORT}}'
       throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
     })
     mockGetDisplayedEffortLevel.mockReturnValue('high')

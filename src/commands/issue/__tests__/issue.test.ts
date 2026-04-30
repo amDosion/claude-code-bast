@@ -230,4 +230,34 @@ describe('issue command — with title', () => {
     expect(result.type).toBe('text')
     expect(typeof result.value).toBe('string')
   })
+
+  // ── H5 regression: browser fallback URL body must be ≤ 4096 chars before encode ──
+  test('H5: URL-encoded body is capped at 4096 chars when session summary is very long', async () => {
+    // Write a log with a very long user message to ensure summary exceeds 4096 chars
+    const longText = 'A'.repeat(6000)
+    await writeSessionLog([
+      JSON.stringify({ role: 'user', content: longText }),
+      JSON.stringify({
+        role: 'assistant',
+        content: [{ type: 'text', text: longText }],
+      }),
+    ])
+    const call = await getCallFn()
+    // No gh, no remote → falls into browser fallback path
+    const result = await call('Some Long Issue Title')
+    expect(result.type).toBe('text')
+    if (result.type === 'text') {
+      // Extract the URL from the output (if present)
+      const urlMatch = result.value.match(/https?:\/\/\S+/)
+      if (urlMatch) {
+        // The URL must be ≤ ~8KB after encoding. Check the body= parameter specifically.
+        const bodyParam = urlMatch[0].match(/[?&]body=([^&]*)/)
+        if (bodyParam) {
+          // decoded body text must be ≤ 4096 chars (plus truncation suffix)
+          const decoded = decodeURIComponent(bodyParam[1])
+          expect(decoded.length).toBeLessThanOrEqual(4096 + 60) // 60 for truncation suffix
+        }
+      }
+    }
+  })
 })

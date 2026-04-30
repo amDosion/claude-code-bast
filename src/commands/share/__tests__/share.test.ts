@@ -289,4 +289,29 @@ describe('share command — log exists', () => {
     expect(result.type).toBe('text')
     expect(typeof result.value).toBe('string')
   })
+
+  // ── M2 regression: maskSecrets must NOT redact git SHAs but MUST redact Anthropic keys ──
+  test('M2: maskSecrets redacts sk-ant-* keys but leaves 40-char hex git SHAs intact', async () => {
+    const { maskSecrets } = await import('../index.js')
+
+    const gitSha = 'a' + '1'.repeat(39) // 40 hex chars — a git SHA
+    const apiKey = 'sk-ant-api03-verylongapikey1234567890abcdef'
+    const input = `commit ${gitSha}\nAPI key: ${apiKey}`
+
+    const result = maskSecrets(input)
+
+    // Git SHA must NOT be redacted
+    expect(result).toContain(gitSha)
+    // API key MUST be redacted
+    expect(result).not.toContain(apiKey)
+    expect(result).toContain('[REDACTED')
+  })
+
+  test('M2: maskSecrets redacts Bearer tokens', async () => {
+    const { maskSecrets } = await import('../index.js')
+    const input =
+      'Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.verylongvalue'
+    const result = maskSecrets(input)
+    expect(result).toContain('[REDACTED_TOKEN]')
+  })
 })

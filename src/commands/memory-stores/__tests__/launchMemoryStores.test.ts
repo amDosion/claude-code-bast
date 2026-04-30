@@ -156,7 +156,11 @@ describe('callMemoryStores: create', () => {
 
 describe('callMemoryStores: archive', () => {
   test('archive calls archiveStore with id', async () => {
-    const store = { memory_store_id: 'ms_arc', name: 'Old Store', archived_at: '2026-01-01' }
+    const store = {
+      memory_store_id: 'ms_arc',
+      name: 'Old Store',
+      archived_at: '2026-01-01',
+    }
     archiveStoreMock.mockResolvedValueOnce(store)
     const onDone = makeOnDone()
     await callMemoryStores(onDone, {} as never, 'archive ms_arc')
@@ -198,10 +202,18 @@ describe('callMemoryStores: memories', () => {
 
 describe('callMemoryStores: create-memory', () => {
   test('create-memory calls createMemory with storeId and content', async () => {
-    const memory = { memory_id: 'mem_new', memory_store_id: 'ms_1', content: 'hello world' }
+    const memory = {
+      memory_id: 'mem_new',
+      memory_store_id: 'ms_1',
+      content: 'hello world',
+    }
     createMemoryMock.mockResolvedValueOnce(memory)
     const onDone = makeOnDone()
-    await callMemoryStores(onDone, {} as never, 'create-memory ms_1 hello world')
+    await callMemoryStores(
+      onDone,
+      {} as never,
+      'create-memory ms_1 hello world',
+    )
     expect(createMemoryMock).toHaveBeenCalledTimes(1)
     const calls = createMemoryMock.mock.calls as unknown as [string, string][]
     expect(calls[0]?.[0]).toBe('ms_1')
@@ -213,7 +225,11 @@ describe('callMemoryStores: create-memory', () => {
   test('create-memory API error → error message', async () => {
     createMemoryMock.mockRejectedValueOnce(new Error('Forbidden'))
     const onDone = makeOnDone()
-    await callMemoryStores(onDone, {} as never, 'create-memory ms_1 test content')
+    await callMemoryStores(
+      onDone,
+      {} as never,
+      'create-memory ms_1 test content',
+    )
     const [msg] = (onDone.mock.calls as unknown as [string, unknown][])[0] ?? []
     expect(msg).toMatch(/failed to create memory/i)
   })
@@ -221,7 +237,11 @@ describe('callMemoryStores: create-memory', () => {
 
 describe('callMemoryStores: get-memory', () => {
   test('get-memory calls getMemory', async () => {
-    const memory = { memory_id: 'mem_get', memory_store_id: 'ms_1', content: 'Test' }
+    const memory = {
+      memory_id: 'mem_get',
+      memory_store_id: 'ms_1',
+      content: 'Test',
+    }
     getMemoryMock.mockResolvedValueOnce(memory)
     const onDone = makeOnDone()
     await callMemoryStores(onDone, {} as never, 'get-memory ms_1 mem_get')
@@ -242,12 +262,24 @@ describe('callMemoryStores: get-memory', () => {
 
 describe('callMemoryStores: update-memory', () => {
   test('update-memory calls updateMemory with storeId, memoryId, and content', async () => {
-    const memory = { memory_id: 'mem_upd', memory_store_id: 'ms_1', content: 'new content' }
+    const memory = {
+      memory_id: 'mem_upd',
+      memory_store_id: 'ms_1',
+      content: 'new content',
+    }
     updateMemoryMock.mockResolvedValueOnce(memory)
     const onDone = makeOnDone()
-    await callMemoryStores(onDone, {} as never, 'update-memory ms_1 mem_upd new content')
+    await callMemoryStores(
+      onDone,
+      {} as never,
+      'update-memory ms_1 mem_upd new content',
+    )
     expect(updateMemoryMock).toHaveBeenCalledTimes(1)
-    const calls = updateMemoryMock.mock.calls as unknown as [string, string, string][]
+    const calls = updateMemoryMock.mock.calls as unknown as [
+      string,
+      string,
+      string,
+    ][]
     expect(calls[0]?.[0]).toBe('ms_1')
     expect(calls[0]?.[1]).toBe('mem_upd')
     expect(calls[0]?.[2]).toBe('new content')
@@ -258,7 +290,11 @@ describe('callMemoryStores: update-memory', () => {
   test('update-memory API error → error message', async () => {
     updateMemoryMock.mockRejectedValueOnce(new Error('Not found'))
     const onDone = makeOnDone()
-    await callMemoryStores(onDone, {} as never, 'update-memory ms_1 mem_missing new content')
+    await callMemoryStores(
+      onDone,
+      {} as never,
+      'update-memory ms_1 mem_missing new content',
+    )
     const [msg] = (onDone.mock.calls as unknown as [string, unknown][])[0] ?? []
     expect(msg).toMatch(/failed to update memory/i)
   })
@@ -280,7 +316,11 @@ describe('callMemoryStores: delete-memory', () => {
   test('delete-memory API error → error message', async () => {
     deleteMemoryMock.mockRejectedValueOnce(new Error('Not found'))
     const onDone = makeOnDone()
-    await callMemoryStores(onDone, {} as never, 'delete-memory ms_1 mem_missing')
+    await callMemoryStores(
+      onDone,
+      {} as never,
+      'delete-memory ms_1 mem_missing',
+    )
     const [msg] = (onDone.mock.calls as unknown as [string, unknown][])[0] ?? []
     expect(msg).toMatch(/failed to delete memory/i)
   })
@@ -289,7 +329,11 @@ describe('callMemoryStores: delete-memory', () => {
 describe('callMemoryStores: versions', () => {
   test('versions lists memory versions', async () => {
     const versions = [
-      { version_id: 'ver_1', memory_store_id: 'ms_1', created_at: '2026-01-01' },
+      {
+        version_id: 'ver_1',
+        memory_store_id: 'ms_1',
+        created_at: '2026-01-01',
+      },
     ]
     listVersionsMock.mockResolvedValueOnce(versions)
     const onDone = makeOnDone()
@@ -310,7 +354,11 @@ describe('callMemoryStores: versions', () => {
 
 describe('callMemoryStores: redact', () => {
   test('redact calls redactVersion with storeId and versionId', async () => {
-    const version = { version_id: 'ver_red', memory_store_id: 'ms_1', redacted_at: '2026-01-01' }
+    const version = {
+      version_id: 'ver_red',
+      memory_store_id: 'ms_1',
+      redacted_at: '2026-01-01',
+    }
     redactVersionMock.mockResolvedValueOnce(version)
     const onDone = makeOnDone()
     await callMemoryStores(onDone, {} as never, 'redact ms_1 ver_red')

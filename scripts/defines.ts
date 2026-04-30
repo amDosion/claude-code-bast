@@ -75,4 +75,6 @@ export const DEFAULT_BUILD_FEATURES = [
     // 'TEAMMEM',                  // 已禁用：依赖 COORDINATOR_MODE，邮箱文件无限增长
     // SSH Remote
     'SSH_REMOTE',                  // SSH 远程连接，本地 REPL + 远端工具执行
+    // Autofix PR
+    'AUTOFIX_PR',                  // /autofix-pr 命令：派发 CCR 远端 session 自动修复 PR 上的 CI 失败
 ]as const;

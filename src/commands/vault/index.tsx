@@ -1,4 +1,4 @@
-import type { Command } from '../../types/command.js'
+import type { Command } from '../../types/command.js';
 
 const vaultCommand: Command = {
   type: 'local-jsx',
@@ -13,9 +13,9 @@ const vaultCommand: Command = {
   bridgeSafe: false,
   availability: ['claude-ai'],
   load: async () => {
-    const m = await import('./launchVault.js')
-    return { call: m.callVault }
+    const m = await import('./launchVault.js');
+    return { call: m.callVault };
   },
-}
+};
 
-export default vaultCommand
+export default vaultCommand;

@@ -5,7 +5,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Command, LocalCommandResult } from '../../types/command.js'
 import {
@@ -22,6 +22,21 @@ import {
 
 import * as childProcess from 'node:child_process'
 import { promisify } from 'node:util'
+
+/**
+ * Sanitizes an error message before surfacing it to the user:
+ * - Replaces the home directory path with "~" to avoid leaking absolute paths.
+ * - Truncates to 200 characters to avoid leaking large stack traces or token fragments.
+ */
+function sanitizeErrorMessage(msg: string): string {
+  const home = homedir()
+  let sanitized = msg.replace(
+    new RegExp(home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'),
+    '~',
+  )
+  if (sanitized.length > 200) sanitized = sanitized.slice(0, 200) + '…'
+  return sanitized
+}
 
 // Re-resolved at call time via namespace import so that test runners using
 // mock.module('node:child_process') see the replacement (unlike module-load
@@ -61,17 +76,26 @@ const SECRET_PATTERNS: Array<{ pattern: RegExp; replacement: string }> = [
     pattern: /\b(AKIA[A-Z0-9]{16})\b/g,
     replacement: '[REDACTED_AWS_KEY]',
   },
-  // Generic long hex strings that look like secrets (≥32 hex chars not in a URL)
+  // GitHub personal access tokens (ghp_*, gho_*, ghs_*, ghr_*)
   {
-    pattern: /(?<![/\w])([0-9a-f]{32,64})(?![/\w])/gi,
-    replacement: '[REDACTED_HEX]',
+    pattern: /\b(gh[a-z]_[A-Za-z0-9_]{36,})/g,
+    replacement: '[REDACTED_GH_TOKEN]',
   },
+  // Slack bot tokens (xoxb-*)
+  {
+    pattern: /\b(xoxb-[A-Za-z0-9-]{30,})/g,
+    replacement: '[REDACTED_SLACK_TOKEN]',
+  },
+  // NOTE: We intentionally do NOT redact generic ≥32-char hex strings because
+  // they match legitimate git commit SHAs and base64 content, producing
+  // garbled share output. Token detection is limited to prefixed patterns above.
 ]
 
 /**
  * Masks secret-looking strings in the given text.
+ * Exported for testing.
  */
-function maskSecrets(text: string): string {
+export function maskSecrets(text: string): string {
   let result = text
   for (const { pattern, replacement } of SECRET_PATTERNS) {
     result = result.replace(pattern, replacement)
@@ -344,8 +368,9 @@ const share: Command = {
       } catch (writeErr: unknown) {
         // Defensive: tmpfile write failed after mkdtempSync succeeded (TOCTOU)
         rmSync(tmpDir, { recursive: true, force: true })
-        const msg =
-          writeErr instanceof Error ? writeErr.message : String(writeErr)
+        const msg = sanitizeErrorMessage(
+          writeErr instanceof Error ? writeErr.message : String(writeErr),
+        )
         return { type: 'text', value: `Failed to prepare share file: ${msg}` }
       }
 

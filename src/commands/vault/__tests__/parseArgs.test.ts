@@ -69,7 +69,9 @@ describe('parseVaultArgs', () => {
 
   // ── add-credential ────────────────────────────────────────────────────────
   test('add-credential with vault_id, key, value → add-credential action', () => {
-    expect(parseVaultArgs('add-credential vault_123 MY_KEY secret-value')).toEqual({
+    expect(
+      parseVaultArgs('add-credential vault_123 MY_KEY secret-value'),
+    ).toEqual({
       action: 'add-credential',
       vaultId: 'vault_123',
       key: 'MY_KEY',
@@ -78,7 +80,9 @@ describe('parseVaultArgs', () => {
   })
 
   test('add-credential with multi-word value → joins value correctly', () => {
-    const result = parseVaultArgs('add-credential vault_xyz API_KEY my secret value here')
+    const result = parseVaultArgs(
+      'add-credential vault_xyz API_KEY my secret value here',
+    )
     expect(result.action).toBe('add-credential')
     if (result.action === 'add-credential') {
       expect(result.secret).toBe('my secret value here')
