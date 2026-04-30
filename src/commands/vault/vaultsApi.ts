@@ -84,24 +84,14 @@ class VaultsApiError extends Error {
 }
 
 async function buildHeaders(): Promise<Record<string, string>> {
-  let accessToken: string
-  let orgUUID: string
-  try {
-    const prepared = await prepareApiRequest()
-    accessToken = prepared.accessToken
-    orgUUID = prepared.orgUUID
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
-    throw new VaultsApiError(
-      `Not authenticated: ${msg}. Run /login to re-authenticate.`,
-      401,
-    )
-  }
-  return {
-    ...getOAuthHeaders(accessToken),
-    'anthropic-beta': VAULTS_BETA_HEADER,
-    'x-organization-uuid': orgUUID,
-  }
+  // /v1/vaults is a workspace-API-key endpoint, not subscription OAuth.
+  // Reverse-engineered from claude.exe v2.1.123: the binary contains no
+  // actual request construction for /v1/vaults — only documentation strings.
+  // Subscription bearer tokens always 401 here.
+  throw new VaultsApiError(
+    '/v1/vaults requires an Anthropic workspace API key, which the fork does not yet wire up. Subscription OAuth (claude.ai login) cannot reach this endpoint. Vault management is currently a workspace-only feature.',
+    501,
+  )
 }
 
 function vaultsBaseUrl(): string {

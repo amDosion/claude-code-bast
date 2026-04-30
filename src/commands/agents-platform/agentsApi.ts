@@ -49,24 +49,15 @@ class AgentsApiError extends Error {
 }
 
 async function buildHeaders(): Promise<Record<string, string>> {
-  let accessToken: string
-  let orgUUID: string
-  try {
-    const prepared = await prepareApiRequest()
-    accessToken = prepared.accessToken
-    orgUUID = prepared.orgUUID
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
-    throw new AgentsApiError(
-      `Not authenticated: ${msg}. Run /login to re-authenticate.`,
-      401,
-    )
-  }
-  return {
-    ...getOAuthHeaders(accessToken),
-    'anthropic-beta': AGENTS_BETA_HEADER,
-    'x-organization-uuid': orgUUID,
-  }
+  // /v1/agents is a workspace-API-key endpoint, not subscription OAuth.
+  // Reverse-engineered from claude.exe v2.1.123: the binary contains no
+  // actual request construction for /v1/agents — only documentation strings
+  // in the managed-agents reference table. Subscription bearer tokens
+  // always 401 here. Surface a clear message instead of "auth failed".
+  throw new AgentsApiError(
+    '/v1/agents requires an Anthropic workspace API key, which the fork does not yet wire up. Subscription OAuth (claude.ai login) cannot reach this endpoint. Use /schedule for cron-style remote agents on the subscription plane.',
+    501,
+  )
 }
 
 function agentsBaseUrl(): string {

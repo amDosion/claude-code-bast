@@ -49,8 +49,12 @@ type TriggerRunResponse = {
   run_id: string
 }
 
-// Triggers share the managed-agents umbrella beta header.
-const TRIGGERS_BETA_HEADER = 'managed-agents-2026-04-01'
+// Reverse-engineered from claude.exe v2.1.123: the only beta value the
+// triggers endpoint actually accepts on the subscription auth plane is
+// `ccr-triggers-2026-01-30`. The earlier umbrella value
+// `managed-agents-2026-04-01` only appears in documentation strings, never
+// in actual request construction.
+const TRIGGERS_BETA_HEADER = 'ccr-triggers-2026-01-30'
 const MAX_RETRIES = 3
 
 function sleep(ms: number): Promise<void> {
