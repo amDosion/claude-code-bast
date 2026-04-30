@@ -15,7 +15,7 @@ import commitPushPr from './commands/commit-push-pr.js'
 import compact from './commands/compact/index.js'
 import config from './commands/config/index.js'
 import { context, contextNonInteractive } from './commands/context/index.js'
-import cost from './commands/cost/index.js'
+// cost/index.ts re-exports usage — /cost is now an alias of /usage
 import diff from './commands/diff/index.js'
 import ctx_viz from './commands/ctx_viz/index.js'
 import doctor from './commands/doctor/index.js'
@@ -45,12 +45,7 @@ import skills from './commands/skills/index.js'
 import status from './commands/status/index.js'
 import tasks from './commands/tasks/index.js'
 import teleport from './commands/teleport/index.js'
-/* eslint-disable @typescript-eslint/no-require-imports */
-const agentsPlatform =
-  process.env.USER_TYPE === 'ant'
-    ? require('./commands/agents-platform/index.js').default
-    : null
-/* eslint-enable @typescript-eslint/no-require-imports */
+import agentsPlatform from './commands/agents-platform/index.js'
 import securityReview from './commands/security-review.js'
 import bughunter from './commands/bughunter/index.js'
 import terminalSetup from './commands/terminalSetup/index.js'
@@ -74,10 +69,9 @@ const assistantCommand = feature('KAIROS')
 const bridge = feature('BRIDGE_MODE')
   ? require('./commands/bridge/index.js').default
   : null
-const remoteControlServerCommand =
-  feature('BRIDGE_MODE')
-    ? require('./commands/remoteControlServer/index.js').default
-    : null
+const remoteControlServerCommand = feature('BRIDGE_MODE')
+  ? require('./commands/remoteControlServer/index.js').default
+  : null
 const voiceCommand = feature('VOICE_MODE')
   ? require('./commands/voice/index.js').default
   : null
@@ -189,6 +183,7 @@ import {
 import antTrace from './commands/ant-trace/index.js'
 import perfIssue from './commands/perf-issue/index.js'
 import sandboxToggle from './commands/sandbox-toggle/index.js'
+import tui from './commands/tui/index.js'
 import chrome from './commands/chrome/index.js'
 import stickers from './commands/stickers/index.js'
 import advisor from './commands/advisor.js'
@@ -228,7 +223,7 @@ import {
 import rateLimitOptions from './commands/rate-limit-options/index.js'
 import statusline from './commands/statusline.js'
 import effort from './commands/effort/index.js'
-import stats from './commands/stats/index.js'
+// stats/index.ts re-exports usage — /stats is now an alias of /usage
 // insights.ts is 113KB (3200 lines, includes diffLines/html rendering). Lazy
 // shim defers the heavy module until /insights is actually invoked.
 const usageReport: Command = {
@@ -266,32 +261,19 @@ export type {
 export { getCommandName, isCommandEnabled } from './types/command.js'
 
 // Commands that get eliminated from the external build
+// Public-but-previously-locked commands moved to the main COMMANDS array below:
+//   commit, commitPushPr, bridgeKick, initVerifiers, autofixPr, onboarding
+// Remaining items here are truly Anthropic-internal (admin/diagnostics endpoints
+// with no fork backend), so they only show up under USER_TYPE=ant.
 export const INTERNAL_ONLY_COMMANDS = [
   backfillSessions,
-  breakCache,
   bughunter,
-  commit,
-  commitPushPr,
-  ctx_viz,
   goodClaude,
-  issue,
-  initVerifiers,
   mockLimits,
-  bridgeKick,
-  version,
-  ...(subscribePr ? [subscribePr] : []),
   resetLimits,
   resetLimitsNonInteractive,
-  onboarding,
-  share,
-  teleport,
   antTrace,
-  perfIssue,
-  env,
   oauthRefresh,
-  debugToolCall,
-  agentsPlatform,
-  autofixPr,
 ].filter(Boolean)
 
 // Declared as a function so that we don't run this until getCommands is called,
@@ -299,6 +281,7 @@ export const INTERNAL_ONLY_COMMANDS = [
 const COMMANDS = memoize((): Command[] => [
   addDir,
   advisor,
+  agentsPlatform,
   autonomy,
   provider,
   agents,
@@ -313,7 +296,6 @@ const COMMANDS = memoize((): Command[] => [
   desktop,
   context,
   contextNonInteractive,
-  cost,
   diff,
   doctor,
   effort,
@@ -401,6 +383,23 @@ const COMMANDS = memoize((): Command[] => [
   summary,
   skillLearning,
   skillSearch,
+  autofixPr,
+  commit,
+  commitPushPr,
+  bridgeKick,
+  version,
+  ...(subscribePr ? [subscribePr] : []),
+  initVerifiers,
+  env,
+  ctx_viz,
+  debugToolCall,
+  perfIssue,
+  breakCache,
+  issue,
+  share,
+  teleport,
+  tui,
+  onboarding,
   ...(process.env.USER_TYPE === 'ant' && !process.env.IS_DEMO
     ? INTERNAL_ONLY_COMMANDS
     : []),
