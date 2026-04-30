@@ -47,6 +47,7 @@ import tasks from './commands/tasks/index.js'
 import teleport from './commands/teleport/index.js'
 import agentsPlatform from './commands/agents-platform/index.js'
 import scheduleCommand from './commands/schedule/index.js'
+import memoryStoresCommand from './commands/memory-stores/index.js'
 import securityReview from './commands/security-review.js'
 import bughunter from './commands/bughunter/index.js'
 import terminalSetup from './commands/terminalSetup/index.js'
@@ -285,6 +286,7 @@ const COMMANDS = memoize((): Command[] => [
   advisor,
   agentsPlatform,
   scheduleCommand,
+  memoryStoresCommand,
   autonomy,
   provider,
   agents,
