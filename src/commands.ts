@@ -174,6 +174,7 @@ import mockLimits from './commands/mock-limits/index.js'
 import bridgeKick from './commands/bridge-kick.js'
 import version from './commands/version.js'
 import summary from './commands/summary/index.js'
+import recap from './commands/recap/index.js'
 import skillLearning from './commands/skill-learning/index.js'
 import skillSearch from './commands/skill-search/index.js'
 import {
@@ -324,7 +325,6 @@ const COMMANDS = memoize((): Command[] => [
   resume,
   session,
   skills,
-  stats,
   status,
   statusline,
   stickers,
@@ -381,6 +381,7 @@ const COMMANDS = memoize((): Command[] => [
   ...(jobCmd ? [jobCmd] : []),
   ...(forceSnip ? [forceSnip] : []),
   summary,
+  recap,
   skillLearning,
   skillSearch,
   autofixPr,
@@ -684,8 +685,7 @@ export const REMOTE_SAFE_COMMANDS: Set<Command> = new Set([
   theme, // Change terminal theme
   color, // Change agent color
   vim, // Toggle vim mode
-  cost, // Show session cost (local cost tracking)
-  usage, // Show usage info
+  usage, // Show session cost, plan usage, and activity stats (/cost and /stats are aliases)
   copy, // Copy last message
   btw, // Quick note
   feedback, // Send feedback
@@ -713,7 +713,7 @@ export const BRIDGE_SAFE_COMMANDS: Set<Command> = new Set(
   [
     compact, // Shrink context — useful mid-session from a phone
     clear, // Wipe transcript
-    cost, // Show session cost
+    usage, // Show session cost (/cost alias)
     summary, // Summarize conversation
     releaseNotes, // Show changelog
     files, // List tracked files
