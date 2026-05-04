@@ -25,25 +25,25 @@ import { logMock } from '../../../../tests/mocks/log.js'
 mock.module('src/utils/log.ts', logMock)
 mock.module('src/utils/debug.ts', debugMock)
 
-// ── Auth / OAuth mocks ──────────────────────────────────────────────────────
-const mockAccessToken = 'test-token-memory-stores'
-const mockOrgUUID = 'org-uuid-memory-stores'
+// ── Workspace API key mock ──────────────────────────────────────────────────
+const mockApiKey = 'sk-ant-api03-test-memory-stores-key'
 
-mock.module('src/utils/auth.js', () => ({
-  getClaudeAIOAuthTokens: () => ({ accessToken: mockAccessToken }),
-}))
-mock.module('src/services/oauth/client.js', () => ({
-  getOrganizationUUID: async () => mockOrgUUID,
-}))
 mock.module('src/constants/oauth.js', () => ({
   getOauthConfig: () => ({ BASE_API_URL: 'https://api.anthropic.com' }),
 }))
-mock.module('src/utils/teleport/api.js', () => ({
-  getOAuthHeaders: (token: string) => ({
-    Authorization: `Bearer ${token}`,
-    'anthropic-version': '2023-06-01',
-  }),
+
+const prepareWorkspaceApiRequestMock = mock(async () => ({
+  apiKey: mockApiKey,
 }))
+
+mock.module('src/utils/teleport/api.js', () => ({
+  prepareWorkspaceApiRequest: prepareWorkspaceApiRequestMock,
+}))
+
+// Note: we do NOT mock src/services/auth/hostGuard.js here.
+// The real assertWorkspaceHost() is called with the URL from getOauthConfig()
+// (mocked to https://api.anthropic.com), which passes the host guard.
+// Mocking hostGuard would pollute hostGuard's own test file via Bun process-level cache.
 
 // ── Axios mock ──────────────────────────────────────────────────────────────
 const axiosGetMock = mock(async () => ({}))
@@ -104,9 +104,13 @@ beforeEach(() => {
   axiosPostMock.mockClear()
   axiosPatchMock.mockClear()
   axiosDeleteMock.mockClear()
+  prepareWorkspaceApiRequestMock.mockClear()
+  process.env['ANTHROPIC_API_KEY'] = mockApiKey
 })
 
-afterEach(() => {})
+afterEach(() => {
+  delete process.env['ANTHROPIC_API_KEY']
+})
 
 // ── REGRESSION: updateMemory MUST use PATCH not POST ─────────────────────
 describe('updateMemory regression: must use PATCH not POST', () => {
@@ -525,5 +529,46 @@ describe('429 rate-limit: not retried (non-5xx)', () => {
     await expect(listStores()).rejects.toThrow()
     // Must NOT have retried — 429 is not a 5xx
     expect(axiosGetMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+// ── Invariant: buildHeaders must return x-api-key, not Authorization ─────────
+describe('invariant: x-api-key present, no Authorization, no x-organization-uuid', () => {
+  test('buildHeaders returns x-api-key header (workspace key)', async () => {
+    axiosGetMock.mockResolvedValueOnce({ data: { data: [] }, status: 200 })
+    await listStores()
+    const calls = axiosGetMock.mock.calls as unknown as [string, { headers: Record<string, string> }][]
+    const headers = calls[0]?.[1]?.headers ?? {}
+    expect(headers['x-api-key']).toBe(mockApiKey)
+  })
+
+  test('buildHeaders does NOT include Authorization header', async () => {
+    axiosGetMock.mockResolvedValueOnce({ data: { data: [] }, status: 200 })
+    await listStores()
+    const calls = axiosGetMock.mock.calls as unknown as [string, { headers: Record<string, string> }][]
+    const headers = calls[0]?.[1]?.headers ?? {}
+    expect(headers['Authorization']).toBeUndefined()
+  })
+
+  test('buildHeaders does NOT include x-organization-uuid header', async () => {
+    axiosGetMock.mockResolvedValueOnce({ data: { data: [] }, status: 200 })
+    await listStores()
+    const calls = axiosGetMock.mock.calls as unknown as [string, { headers: Record<string, string> }][]
+    const headers = calls[0]?.[1]?.headers ?? {}
+    expect(headers['x-organization-uuid']).toBeUndefined()
+  })
+
+  test('uses prepareWorkspaceApiRequest to obtain API key', async () => {
+    prepareWorkspaceApiRequestMock.mockClear()
+    axiosGetMock.mockResolvedValueOnce({ data: { data: [] }, status: 200 })
+    await listStores()
+    expect(prepareWorkspaceApiRequestMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('request goes to api.anthropic.com (host guard passes for correct host)', async () => {
+    axiosGetMock.mockResolvedValueOnce({ data: { data: [] }, status: 200 })
+    await listStores()
+    const calls = axiosGetMock.mock.calls as unknown as [string, unknown][]
+    expect(calls[0]?.[0]).toContain('api.anthropic.com')
   })
 })

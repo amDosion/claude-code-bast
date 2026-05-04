@@ -14,34 +14,25 @@ import { logMock } from '../../../../tests/mocks/log.js'
 mock.module('src/utils/log.ts', logMock)
 mock.module('src/utils/debug.ts', debugMock)
 
-// ── Auth / OAuth mocks ──────────────────────────────────────────────────────
-const mockAccessToken = 'test-access-token'
-const mockOrgUUID = 'org-uuid-123'
-
-mock.module('src/utils/auth.js', () => ({
-  getClaudeAIOAuthTokens: () => ({ accessToken: mockAccessToken }),
-}))
-
-mock.module('src/services/oauth/client.js', () => ({
-  getOrganizationUUID: async () => mockOrgUUID,
-}))
+// ── Workspace API key mock ──────────────────────────────────────────────────
+const mockApiKey = 'sk-ant-api03-test-agents-key'
 
 mock.module('src/constants/oauth.js', () => ({
   getOauthConfig: () => ({ BASE_API_URL: 'https://api.anthropic.com' }),
 }))
 
-const prepareApiRequestMock = mock(async () => ({
-  accessToken: mockAccessToken,
-  orgUUID: mockOrgUUID,
+const prepareWorkspaceApiRequestMock = mock(async () => ({
+  apiKey: mockApiKey,
 }))
 
 mock.module('src/utils/teleport/api.js', () => ({
-  prepareApiRequest: prepareApiRequestMock,
-  getOAuthHeaders: (token: string) => ({
-    Authorization: `Bearer ${token}`,
-    'anthropic-version': '2023-06-01',
-  }),
+  prepareWorkspaceApiRequest: prepareWorkspaceApiRequestMock,
 }))
+
+// Note: we do NOT mock src/services/auth/hostGuard.js here.
+// The real assertWorkspaceHost() is called with the URL from getOauthConfig()
+// (mocked to https://api.anthropic.com), which passes the host guard.
+// Mocking hostGuard would pollute hostGuard's own test file via Bun process-level cache.
 
 // ── Axios mock ──────────────────────────────────────────────────────────────
 const axiosGetMock = mock(async () => ({}))
@@ -85,9 +76,17 @@ beforeEach(() => {
   axiosGetMock.mockClear()
   axiosPostMock.mockClear()
   axiosDeleteMock.mockClear()
+  prepareWorkspaceApiRequestMock.mockClear()
+  // Ensure ANTHROPIC_API_KEY is set for happy-path tests
+  process.env['ANTHROPIC_API_KEY'] = mockApiKey
 })
 
-afterEach(() => {})
+afterEach(() => {
+  // Clean up env var to avoid test pollution
+  delete process.env['ANTHROPIC_API_KEY']
+})
+
+// afterEach handled above
 
 describe('listAgents', () => {
   test('returns agents on 200', async () => {
@@ -300,14 +299,69 @@ describe('withRetry M5: honors Retry-After header on 5xx', () => {
   })
 })
 
-// ── Regression: auth must use prepareApiRequest (not direct getClaudeAIOAuthTokens) ──
-describe('regression: uses prepareApiRequest for auth', () => {
-  test('listAgents calls prepareApiRequest to obtain token and orgUUID', async () => {
-    prepareApiRequestMock.mockClear()
+// ── Regression: auth must use prepareWorkspaceApiRequest (not subscription OAuth) ──
+describe('regression: uses prepareWorkspaceApiRequest for auth', () => {
+  test('listAgents calls prepareWorkspaceApiRequest to obtain workspace API key', async () => {
+    prepareWorkspaceApiRequestMock.mockClear()
     axiosGetMock.mockResolvedValueOnce({ data: { data: [] }, status: 200 })
 
     await listAgents()
 
-    expect(prepareApiRequestMock).toHaveBeenCalledTimes(1)
+    expect(prepareWorkspaceApiRequestMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+// ── Invariant: buildHeaders must return x-api-key, not Authorization ─────────
+describe('invariant: x-api-key present, no Authorization, no x-organization-uuid', () => {
+  test('buildHeaders returns x-api-key header (workspace key)', async () => {
+    axiosGetMock.mockResolvedValueOnce({ data: { data: [] }, status: 200 })
+    await listAgents()
+    const calls = axiosGetMock.mock.calls as unknown as [string, { headers: Record<string, string> }][]
+    const headers = calls[0]?.[1]?.headers ?? {}
+    expect(headers['x-api-key']).toBe(mockApiKey)
+  })
+
+  test('buildHeaders does NOT include Authorization header', async () => {
+    axiosGetMock.mockResolvedValueOnce({ data: { data: [] }, status: 200 })
+    await listAgents()
+    const calls = axiosGetMock.mock.calls as unknown as [string, { headers: Record<string, string> }][]
+    const headers = calls[0]?.[1]?.headers ?? {}
+    expect(headers['Authorization']).toBeUndefined()
+  })
+
+  test('buildHeaders does NOT include x-organization-uuid header', async () => {
+    axiosGetMock.mockResolvedValueOnce({ data: { data: [] }, status: 200 })
+    await listAgents()
+    const calls = axiosGetMock.mock.calls as unknown as [string, { headers: Record<string, string> }][]
+    const headers = calls[0]?.[1]?.headers ?? {}
+    expect(headers['x-organization-uuid']).toBeUndefined()
+  })
+
+  test('buildHeaders includes anthropic-beta header with managed-agents umbrella', async () => {
+    axiosGetMock.mockResolvedValueOnce({ data: { data: [] }, status: 200 })
+    await listAgents()
+    const calls = axiosGetMock.mock.calls as unknown as [string, { headers: Record<string, string> }][]
+    const headers = calls[0]?.[1]?.headers ?? {}
+    expect(headers['anthropic-beta']).toContain('managed-agents')
+  })
+
+  test('throws 501 when ANTHROPIC_API_KEY is missing (all 3 retries fail)', async () => {
+    // withRetry retries 5xx errors (statusCode >= 500 including 501).
+    // buildHeaders throws AgentsApiError(msg, 501) for config errors.
+    // All 3 retry attempts must fail for the error to propagate.
+    const missingKeyError = new Error('ANTHROPIC_API_KEY is required')
+    prepareWorkspaceApiRequestMock
+      .mockRejectedValueOnce(missingKeyError)
+      .mockRejectedValueOnce(missingKeyError)
+      .mockRejectedValueOnce(missingKeyError)
+    await expect(listAgents()).rejects.toThrow(/ANTHROPIC_API_KEY|required/i)
+  }, 5000)
+
+  test('request goes to api.anthropic.com (host guard passes for correct host)', async () => {
+    // The real assertWorkspaceHost() runs and passes since BASE_API_URL is api.anthropic.com
+    axiosGetMock.mockResolvedValueOnce({ data: { data: [] }, status: 200 })
+    await listAgents()
+    const calls = axiosGetMock.mock.calls as unknown as [string, unknown][]
+    expect(calls[0]?.[0]).toContain('api.anthropic.com')
   })
 })

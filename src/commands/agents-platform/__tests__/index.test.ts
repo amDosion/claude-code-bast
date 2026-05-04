@@ -58,4 +58,9 @@ describe('agentsPlatform index metadata', () => {
     const loaded = await cmd.load!()
     expect(typeof (loaded as { call?: unknown }).call).toBe('function')
   })
+
+  test('isHidden is boolean (dynamic: false when ANTHROPIC_API_KEY set, true when absent)', () => {
+    // isHidden = !process.env['ANTHROPIC_API_KEY']
+    expect(typeof (cmd as { isHidden?: unknown }).isHidden).toBe('boolean')
+  })
 })
