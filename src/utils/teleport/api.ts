@@ -175,6 +175,33 @@ export const CodeSessionSchema = lazySchema(() =>
 export type CodeSession = z.infer<ReturnType<typeof CodeSessionSchema>>
 
 /**
+ * Validates and prepares for workspace API key requests (agents, vaults, memory_stores, skills).
+ *
+ * Reads ANTHROPIC_API_KEY from environment, validates the sk-ant-api03-* prefix, and
+ * returns the key for use in `x-api-key` headers. Configuration errors (missing or
+ * wrong-prefix key) are surfaced as thrown errors so callers can convert them to 501.
+ *
+ * @throws {Error} when ANTHROPIC_API_KEY is absent or does not start with sk-ant-api03-
+ */
+export async function prepareWorkspaceApiRequest(): Promise<{ apiKey: string }> {
+  const apiKey = process.env['ANTHROPIC_API_KEY']?.trim()
+  if (!apiKey) {
+    throw new Error(
+      'ANTHROPIC_API_KEY is required to use workspace endpoints (/v1/agents, /v1/vaults, /v1/memory_stores, /v1/skills). ' +
+        'Set ANTHROPIC_API_KEY=sk-ant-api03-* (from https://console.anthropic.com/settings/keys). ' +
+        'Subscription OAuth (claude.ai login) cannot reach these endpoints.',
+    )
+  }
+  if (!apiKey.startsWith('sk-ant-api03-')) {
+    throw new Error(
+      `ANTHROPIC_API_KEY must start with sk-ant-api03- (workspace key), got prefix "${apiKey.slice(0, 13)}...". ` +
+        'Obtain a workspace API key from https://console.anthropic.com/settings/keys.',
+    )
+  }
+  return { apiKey }
+}
+
+/**
  * Validates and prepares for API requests
  * @returns Object containing access token and organization UUID
  */

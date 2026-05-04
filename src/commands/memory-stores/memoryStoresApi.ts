@@ -22,7 +22,8 @@
 
 import axios from 'axios'
 import { getOauthConfig } from '../../constants/oauth.js'
-import { getOAuthHeaders, prepareApiRequest } from '../../utils/teleport/api.js'
+import { assertWorkspaceHost } from '../../services/auth/hostGuard.js'
+import { prepareWorkspaceApiRequest } from '../../utils/teleport/api.js'
 
 export type MemoryStore = {
   memory_store_id: string
@@ -93,14 +94,25 @@ class MemoryStoresApiError extends Error {
 }
 
 async function buildHeaders(): Promise<Record<string, string>> {
-  // /v1/memory_stores is a workspace-API-key endpoint, not subscription OAuth.
-  // Reverse-engineered from claude.exe v2.1.123: the binary contains no
-  // actual request construction for /v1/memory_stores — only documentation strings.
-  // Subscription bearer tokens always 401 here.
-  throw new MemoryStoresApiError(
-    '/v1/memory_stores requires an Anthropic workspace API key, which the fork does not yet wire up. Subscription OAuth (claude.ai login) cannot reach this endpoint. Memory stores are currently a workspace-only feature.',
-    501,
-  )
+  // /v1/memory_stores requires a workspace-scoped API key (sk-ant-api03-*).
+  // Server explicitly returns: "memory stores require a workspace-scoped API key or session"
+  // (probed 2026-05-03). Subscription OAuth bearer tokens always 401 here.
+  // Guard the host before sending the key to prevent credential leakage.
+  let apiKey: string
+  try {
+    const prepared = await prepareWorkspaceApiRequest()
+    apiKey = prepared.apiKey
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    throw new MemoryStoresApiError(msg, 501)
+  }
+  assertWorkspaceHost(memoryStoresBaseUrl())
+  return {
+    'x-api-key': apiKey,
+    'anthropic-version': '2023-06-01',
+    'anthropic-beta': MEMORY_STORES_BETA_HEADER,
+    'content-type': 'application/json',
+  }
 }
 
 function memoryStoresBaseUrl(): string {

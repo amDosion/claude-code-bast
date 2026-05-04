@@ -10,7 +10,8 @@
 
 import axios from 'axios'
 import { getOauthConfig } from '../../constants/oauth.js'
-import { getOAuthHeaders, prepareApiRequest } from '../../utils/teleport/api.js'
+import { assertWorkspaceHost } from '../../services/auth/hostGuard.js'
+import { prepareWorkspaceApiRequest } from '../../utils/teleport/api.js'
 
 export type AgentTrigger = {
   id: string
@@ -49,15 +50,24 @@ class AgentsApiError extends Error {
 }
 
 async function buildHeaders(): Promise<Record<string, string>> {
-  // /v1/agents is a workspace-API-key endpoint, not subscription OAuth.
-  // Reverse-engineered from claude.exe v2.1.123: the binary contains no
-  // actual request construction for /v1/agents — only documentation strings
-  // in the managed-agents reference table. Subscription bearer tokens
-  // always 401 here. Surface a clear message instead of "auth failed".
-  throw new AgentsApiError(
-    '/v1/agents requires an Anthropic workspace API key, which the fork does not yet wire up. Subscription OAuth (claude.ai login) cannot reach this endpoint. Use /schedule for cron-style remote agents on the subscription plane.',
-    501,
-  )
+  // /v1/agents requires a workspace-scoped API key (sk-ant-api03-*).
+  // Subscription OAuth bearer tokens always 401 here (server-enforced plane separation).
+  // Guard the host before sending the key to prevent credential leakage.
+  let apiKey: string
+  try {
+    const prepared = await prepareWorkspaceApiRequest()
+    apiKey = prepared.apiKey
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    throw new AgentsApiError(msg, 501)
+  }
+  assertWorkspaceHost(agentsBaseUrl())
+  return {
+    'x-api-key': apiKey,
+    'anthropic-version': '2023-06-01',
+    'anthropic-beta': AGENTS_BETA_HEADER,
+    'content-type': 'application/json',
+  }
 }
 
 function agentsBaseUrl(): string {

@@ -20,7 +20,8 @@
 
 import axios from 'axios'
 import { getOauthConfig } from '../../constants/oauth.js'
-import { getOAuthHeaders, prepareApiRequest } from '../../utils/teleport/api.js'
+import { assertWorkspaceHost } from '../../services/auth/hostGuard.js'
+import { prepareWorkspaceApiRequest } from '../../utils/teleport/api.js'
 
 export type Vault = {
   vault_id: string
@@ -84,14 +85,24 @@ class VaultsApiError extends Error {
 }
 
 async function buildHeaders(): Promise<Record<string, string>> {
-  // /v1/vaults is a workspace-API-key endpoint, not subscription OAuth.
-  // Reverse-engineered from claude.exe v2.1.123: the binary contains no
-  // actual request construction for /v1/vaults — only documentation strings.
-  // Subscription bearer tokens always 401 here.
-  throw new VaultsApiError(
-    '/v1/vaults requires an Anthropic workspace API key, which the fork does not yet wire up. Subscription OAuth (claude.ai login) cannot reach this endpoint. Vault management is currently a workspace-only feature.',
-    501,
-  )
+  // /v1/vaults requires a workspace-scoped API key (sk-ant-api03-*).
+  // Subscription OAuth bearer tokens always 401 here (server-enforced plane separation).
+  // Guard the host before sending the key to prevent credential leakage.
+  let apiKey: string
+  try {
+    const prepared = await prepareWorkspaceApiRequest()
+    apiKey = prepared.apiKey
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    throw new VaultsApiError(msg, 501)
+  }
+  assertWorkspaceHost(vaultsBaseUrl())
+  return {
+    'x-api-key': apiKey,
+    'anthropic-version': '2023-06-01',
+    'anthropic-beta': VAULTS_BETA_HEADER,
+    'content-type': 'application/json',
+  }
 }
 
 function vaultsBaseUrl(): string {

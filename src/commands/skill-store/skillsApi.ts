@@ -17,7 +17,8 @@
 
 import axios from 'axios'
 import { getOauthConfig } from '../../constants/oauth.js'
-import { getOAuthHeaders, prepareApiRequest } from '../../utils/teleport/api.js'
+import { assertWorkspaceHost } from '../../services/auth/hostGuard.js'
+import { prepareWorkspaceApiRequest } from '../../utils/teleport/api.js'
 
 export type Skill = {
   skill_id: string
@@ -66,22 +67,22 @@ class SkillsApiError extends Error {
 }
 
 async function buildHeaders(): Promise<Record<string, string>> {
-  let accessToken: string
-  let orgUUID: string
+  // /v1/skills requires a workspace-scoped API key (sk-ant-api03-*).
+  // Subscription OAuth bearer tokens 404 here (endpoint not on subscription plane).
+  // Guard the host before sending the key to prevent credential leakage.
+  let apiKey: string
   try {
-    const prepared = await prepareApiRequest()
-    accessToken = prepared.accessToken
-    orgUUID = prepared.orgUUID
+    const prepared = await prepareWorkspaceApiRequest()
+    apiKey = prepared.apiKey
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
-    throw new SkillsApiError(
-      `Not authenticated: ${msg}. Run /login to re-authenticate.`,
-      401,
-    )
+    throw new SkillsApiError(msg, 501)
   }
+  assertWorkspaceHost(skillsBaseUrl())
   return {
-    ...getOAuthHeaders(accessToken),
-    'x-organization-uuid': orgUUID,
+    'x-api-key': apiKey,
+    'anthropic-version': '2023-06-01',
+    'content-type': 'application/json',
   }
 }
 
