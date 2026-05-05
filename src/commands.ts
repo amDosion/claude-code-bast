@@ -50,6 +50,8 @@ import scheduleCommand from './commands/schedule/index.js'
 import memoryStoresCommand from './commands/memory-stores/index.js'
 import skillStoreCommand from './commands/skill-store/index.js'
 import vaultCommand from './commands/vault/index.js'
+import localVaultCommand from './commands/local-vault/index.js'
+import localMemoryCommand from './commands/local-memory/index.js'
 import providersCommand from './commands/provider/index.js'
 import securityReview from './commands/security-review.js'
 import bughunter from './commands/bughunter/index.js'
@@ -292,6 +294,8 @@ const COMMANDS = memoize((): Command[] => [
   memoryStoresCommand,
   skillStoreCommand,
   vaultCommand,
+  localVaultCommand,
+  localMemoryCommand,
   providersCommand,
   autonomy,
   provider,
