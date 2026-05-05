@@ -64,9 +64,9 @@ describe('assertWorkspaceHost', () => {
   })
 
   test('throws for attacker host', () => {
-    expect(() =>
-      assertWorkspaceHost('https://attacker.com/steal'),
-    ).toThrow('non-Anthropic host')
+    expect(() => assertWorkspaceHost('https://attacker.com/steal')).toThrow(
+      'non-Anthropic host',
+    )
   })
 
   test('throws for invalid URL', () => {
@@ -82,6 +82,21 @@ describe('assertWorkspaceHost', () => {
     }
     expect(message).toContain('api.anthropic.com')
   })
+
+  // E2 regression: hostname-based check catches subdomain-confusion attacks
+  test('throws for api.anthropic.com.evil.com (subdomain confusion)', () => {
+    expect(() =>
+      assertWorkspaceHost('https://api.anthropic.com.evil.com/v1/agents'),
+    ).toThrow('non-Anthropic host')
+  })
+
+  test('throws for URL with credentials (url@host bypass attempt)', () => {
+    // new URL('https://api.anthropic.com@evil.com/').hostname === 'evil.com'
+    // so this is caught by hostname !== WORKSPACE_API_HOST
+    expect(() =>
+      assertWorkspaceHost('https://api.anthropic.com@evil.com/v1/agents'),
+    ).toThrow('non-Anthropic host')
+  })
 })
 
 // ── assertSubscriptionBaseUrl ───────────────────────────────────────────────
@@ -89,9 +104,7 @@ describe('assertWorkspaceHost', () => {
 describe('assertSubscriptionBaseUrl', () => {
   test('passes for https://api.anthropic.com/v1/code/triggers', () => {
     expect(() =>
-      assertSubscriptionBaseUrl(
-        'https://api.anthropic.com/v1/code/triggers',
-      ),
+      assertSubscriptionBaseUrl('https://api.anthropic.com/v1/code/triggers'),
     ).not.toThrow()
   })
 

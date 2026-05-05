@@ -23,9 +23,12 @@ beforeEach(() => {
   process.env['CLAUDE_CONFIG_DIR'] = tmpDir
 })
 
-afterEach(() => {
+afterEach(async () => {
   delete process.env['CLAUDE_CONFIG_DIR']
   rmSync(tmpDir, { recursive: true, force: true })
+  // J1 fix: invalidate the per-process cache between tests so each test starts fresh
+  const { _invalidateProviderCache } = await import('../loader.js')
+  _invalidateProviderCache()
 })
 
 describe('loadProviders', () => {
@@ -33,7 +36,7 @@ describe('loadProviders', () => {
     const { loadProviders } = await import('../loader.js')
     const providers = loadProviders()
     expect(providers).toHaveLength(4)
-    expect(providers.map((p) => p.id)).toEqual([
+    expect(providers.map(p => p.id)).toEqual([
       'cerebras',
       'groq',
       'qwen',
@@ -89,7 +92,7 @@ describe('loadProviders', () => {
     const providers = loadProviders()
     // 4 defaults + 1 custom = 5
     expect(providers).toHaveLength(5)
-    expect(providers.find((p) => p.id === 'myendpoint')).toMatchObject({
+    expect(providers.find(p => p.id === 'myendpoint')).toMatchObject({
       baseUrl: 'https://my.api.com/v1',
     })
   })
@@ -111,7 +114,7 @@ describe('loadProviders', () => {
     const providers = loadProviders()
     // Still 4 providers (cerebras replaced, not added)
     expect(providers).toHaveLength(4)
-    const cerebras = providers.find((p) => p.id === 'cerebras')
+    const cerebras = providers.find(p => p.id === 'cerebras')
     expect(cerebras?.baseUrl).toBe('https://custom-cerebras.example.com/v1')
   })
 

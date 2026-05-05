@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -108,5 +108,73 @@ describe('multiStore', () => {
     createStore('unicode-store')
     setEntry('unicode-store', '日本語キー', 'value with 日本語')
     expect(getEntry('unicode-store', '日本語キー')).toBe('value with 日本語')
+  })
+})
+
+// ── I3 / E1: Path traversal regression tests ─────────────────────────────────
+// All these MUST throw BEFORE the fix lands (they test the invariant that
+// invalid store names are rejected before any file I/O occurs).
+
+describe('multiStore: path traversal rejection (E1 regression)', () => {
+  let tmpDir: string
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'multi-store-sec-'))
+    process.env['CLAUDE_CONFIG_DIR'] = tmpDir
+  })
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true })
+    delete process.env['CLAUDE_CONFIG_DIR']
+  })
+
+  test('store name ".." is rejected', async () => {
+    const { setEntry } = await import('../multiStore.js')
+    expect(() => setEntry('..', 'key', 'value')).toThrow()
+  })
+
+  test('store name "a/b" is rejected', async () => {
+    const { setEntry } = await import('../multiStore.js')
+    expect(() => setEntry('a/b', 'key', 'value')).toThrow()
+  })
+
+  test('store name "a\\\\b" is rejected', async () => {
+    const { setEntry } = await import('../multiStore.js')
+    expect(() => setEntry('a\\b', 'key', 'value')).toThrow()
+  })
+
+  test('store name with null byte is rejected', async () => {
+    const { setEntry } = await import('../multiStore.js')
+    expect(() => setEntry('foo\x00bar', 'key', 'value')).toThrow()
+  })
+
+  test('store name "C:hack" (Windows drive prefix) is rejected', async () => {
+    const { setEntry } = await import('../multiStore.js')
+    expect(() => setEntry('C:hack', 'key', 'value')).toThrow()
+  })
+
+  test('store name that resolves outside base dir is rejected', async () => {
+    const { setEntry } = await import('../multiStore.js')
+    // An encoded-style path that could escape
+    expect(() => setEntry('../escape', 'key', 'value')).toThrow()
+  })
+
+  test('store name too long (>255 chars) is rejected', async () => {
+    const { setEntry } = await import('../multiStore.js')
+    const longName = 'a'.repeat(256)
+    expect(() => setEntry(longName, 'key', 'value')).toThrow()
+  })
+
+  test('validateStoreName: accepted store name passes', async () => {
+    const { createStore } = await import('../multiStore.js')
+    // Should NOT throw
+    expect(() => createStore('valid-store-name')).not.toThrow()
+  })
+
+  test('D2: value >1MB is rejected', async () => {
+    const { createStore, setEntry } = await import('../multiStore.js')
+    createStore('size-test')
+    const bigValue = 'X'.repeat(1_048_577) // 1MB + 1 byte
+    expect(() => setEntry('size-test', 'big', bigValue)).toThrow()
   })
 })
