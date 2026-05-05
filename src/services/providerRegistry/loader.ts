@@ -1,5 +1,7 @@
-import { existsSync, readFileSync } from 'fs'
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { join } from 'path'
+import { randomBytes } from 'node:crypto'
+import { tmpdir } from 'node:os'
 import { logError } from '../../utils/log.js'
 import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
 import { ProvidersFileSchema, type ProviderConfig } from './types.js'
@@ -53,6 +55,15 @@ export function getProvidersFilePath(): string {
   return join(getClaudeConfigHomeDir(), 'providers.json')
 }
 
+// ── J1: per-process memoization with stale-on-invalidate ─────────────────────
+
+let _cachedProviders: ProviderConfig[] | null = null
+
+/** Invalidate the in-process provider cache (called after saveProviders). */
+export function _invalidateProviderCache(): void {
+  _cachedProviders = null
+}
+
 /**
  * Load provider configurations.
  *
@@ -63,56 +74,76 @@ export function getProvidersFilePath(): string {
  *    - Corrupt/invalid file: log warning, return defaults only.
  * 3. Empty providers.json: return defaults.
  *
+ * A1 fix: returns load diagnostics so callers (ProviderView) can surface errors.
+ * J1 fix: memoized per-process; invalidated after saveProviders().
+ *
  * This function never throws — corrupt files produce a warning + fallback.
  */
 export function loadProviders(): ProviderConfig[] {
+  // J1: return cached result if available (prevents repeated disk reads on findProvider)
+  if (_cachedProviders !== null) return _cachedProviders
+
+  const result = _loadProvidersInternal()
+  _cachedProviders = result.providers
+  return result.providers
+}
+
+/**
+ * Load providers with diagnostic information.
+ * Returns { providers, error? } — callers can surface the error to the UI.
+ * A1 fix: exposes parse errors to UI layer instead of only logError.
+ */
+export function loadProvidersWithDiagnostic(): {
+  providers: ProviderConfig[]
+  error?: string
+} {
+  const result = _loadProvidersInternal()
+  _cachedProviders = result.providers
+  return result
+}
+
+function _loadProvidersInternal(): {
+  providers: ProviderConfig[]
+  error?: string
+} {
   const filePath = getProvidersFilePath()
 
   if (!existsSync(filePath)) {
-    return [...DEFAULT_PROVIDERS]
+    return { providers: [...DEFAULT_PROVIDERS] }
   }
 
   let raw: string
   try {
     raw = readFileSync(filePath, 'utf-8')
   } catch (err: unknown) {
-    logError(
-      new Error(
-        `loadProviders: failed to read ${filePath}: ${err instanceof Error ? err.message : String(err)}`,
-      ),
-    )
-    return [...DEFAULT_PROVIDERS]
+    const msg = `loadProviders: failed to read ${filePath}: ${err instanceof Error ? err.message : String(err)}`
+    logError(new Error(msg))
+    return { providers: [...DEFAULT_PROVIDERS], error: msg }
   }
 
   // Empty file → return defaults
   if (!raw.trim()) {
-    return [...DEFAULT_PROVIDERS]
+    return { providers: [...DEFAULT_PROVIDERS] }
   }
 
   let parsed: unknown
   try {
     parsed = JSON.parse(raw)
   } catch {
-    logError(
-      new Error(
-        `loadProviders: ${filePath} is not valid JSON. Using default providers.`,
-      ),
-    )
-    return [...DEFAULT_PROVIDERS]
+    const msg = `loadProviders: ${filePath} is not valid JSON. Using default providers.`
+    logError(new Error(msg))
+    return { providers: [...DEFAULT_PROVIDERS], error: msg }
   }
 
   const result = ProvidersFileSchema.safeParse(parsed)
   if (!result.success) {
-    logError(
-      new Error(
-        `loadProviders: ${filePath} failed schema validation: ${result.error.message}. Using default providers.`,
-      ),
-    )
-    return [...DEFAULT_PROVIDERS]
+    const msg = `loadProviders: ${filePath} failed schema validation: ${result.error.message}. Using default providers.`
+    logError(new Error(msg))
+    return { providers: [...DEFAULT_PROVIDERS], error: msg }
   }
 
   if (result.data.length === 0) {
-    return [...DEFAULT_PROVIDERS]
+    return { providers: [...DEFAULT_PROVIDERS] }
   }
 
   // Merge: user entries override defaults with same id; new ids are appended.
@@ -124,7 +155,7 @@ export function loadProviders(): ProviderConfig[] {
     merged.set(p.id, p)
   }
 
-  return Array.from(merged.values())
+  return { providers: Array.from(merged.values()) }
 }
 
 /**
@@ -134,7 +165,21 @@ export function findProvider(
   id: string,
   providers?: ProviderConfig[],
 ): ProviderConfig | undefined {
-  return (providers ?? loadProviders()).find((p) => p.id === id)
+  return (providers ?? loadProviders()).find(p => p.id === id)
+}
+
+/**
+ * Deep-equal comparison for ProviderConfig objects, key-order independent.
+ * E4 fix: replaces JSON.stringify comparison which is key-order sensitive.
+ */
+function providerConfigEqual(a: ProviderConfig, b: ProviderConfig): boolean {
+  const keysA = Object.keys(a).sort()
+  const keysB = Object.keys(b).sort()
+  if (keysA.length !== keysB.length) return false
+  for (const k of keysA) {
+    if (a[k as keyof ProviderConfig] !== b[k as keyof ProviderConfig]) return false
+  }
+  return true
 }
 
 /**
@@ -143,11 +188,14 @@ export function findProvider(
  * Only writes providers that are NOT already in DEFAULT_PROVIDERS (or the
  * existing file). If a provider with the same id exists, it is replaced.
  *
+ * C3 fix: uses atomic tmp+rename write.
+ * E4 fix: uses key-order-independent deep equal for default comparison.
+ * J1 fix: invalidates cache after write.
+ *
  * Returns the final merged list that was written.
  */
 export function saveProviders(providers: ProviderConfig[]): ProviderConfig[] {
   const filePath = getProvidersFilePath()
-  const { writeFileSync } = require('fs') as typeof import('fs')
 
   // Build merged list (providers override defaults by id)
   const merged = new Map<string, ProviderConfig>()
@@ -161,18 +209,30 @@ export function saveProviders(providers: ProviderConfig[]): ProviderConfig[] {
   // Only persist non-default providers (defaults are always built in)
   const toWrite: ProviderConfig[] = []
   for (const [id, p] of merged) {
-    const isDefault = DEFAULT_PROVIDERS.some((d) => d.id === id)
+    const isDefault = DEFAULT_PROVIDERS.some(d => d.id === id)
     if (!isDefault) {
       toWrite.push(p)
     } else {
-      // If user overrode a default, persist the override
-      const defaultEntry = DEFAULT_PROVIDERS.find((d) => d.id === id)
-      if (defaultEntry && JSON.stringify(defaultEntry) !== JSON.stringify(p)) {
+      // E4: If user overrode a default, persist the override (key-order-independent compare)
+      const defaultEntry = DEFAULT_PROVIDERS.find(d => d.id === id)
+      if (defaultEntry && !providerConfigEqual(defaultEntry, p)) {
         toWrite.push(p)
       }
     }
   }
 
-  writeFileSync(filePath, JSON.stringify(toWrite, null, 2), 'utf-8')
+  // C3: atomic write — tmp file + rename prevents lost-update on concurrent save
+  const tmpPath = join(tmpdir(), `.providers-${randomBytes(8).toString('hex')}.tmp`)
+  try {
+    writeFileSync(tmpPath, JSON.stringify(toWrite, null, 2), 'utf-8')
+    renameSync(tmpPath, filePath)
+  } catch (err) {
+    try { renameSync(tmpPath, tmpPath + '.cleanup') } catch { /* ignore */ }
+    throw err
+  }
+
+  // J1: invalidate cache so next loadProviders() reads fresh data
+  _invalidateProviderCache()
+
   return Array.from(merged.values())
 }

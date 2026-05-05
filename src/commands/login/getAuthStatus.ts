@@ -77,12 +77,17 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
  * Format: first4 + '...' + last2 + ' (N chars)'
  * e.g.: 'sk-a...67 (48 chars)'
  *
+ * E3 fix: keys shorter than 20 chars expose a high % of entropy per char
+ * (e.g. 6/14 = 43% exposed). For short/malformed keys, show [redacted] only.
+ *
  * Never returns the raw key value.
  */
 function maskApiKey(key: string): string {
   const len = key.length
+  // E3: short keys — show only length, no prefix
+  if (len < 20) return `[redacted] (${len} chars)`
   const first4 = key.slice(0, 4)
-  const last2 = len >= 2 ? key.slice(-2) : ''
+  const last2 = key.slice(-2)
   return `${first4}...${last2} (${len} chars)`
 }
 
@@ -107,7 +112,8 @@ function displayName(id: string): string {
 export function getAuthStatus(): AuthStatus {
   // ---- 1. Subscription OAuth plane ----
   const oauthTokens = getClaudeAIOAuthTokens()
-  const subscriptionActive = oauthTokens !== null && Boolean(oauthTokens.accessToken)
+  const subscriptionActive =
+    oauthTokens !== null && Boolean(oauthTokens.accessToken)
 
   let plan: AuthStatus['subscription']['plan'] = null
   if (subscriptionActive && oauthTokens) {

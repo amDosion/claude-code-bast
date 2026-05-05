@@ -183,19 +183,24 @@ export type CodeSession = z.infer<ReturnType<typeof CodeSessionSchema>>
  *
  * @throws {Error} when ANTHROPIC_API_KEY is absent or does not start with sk-ant-api03-
  */
-export async function prepareWorkspaceApiRequest(): Promise<{ apiKey: string }> {
+export async function prepareWorkspaceApiRequest(): Promise<{
+  apiKey: string
+}> {
   const apiKey = process.env['ANTHROPIC_API_KEY']?.trim()
   if (!apiKey) {
     throw new Error(
       'ANTHROPIC_API_KEY is required to use workspace endpoints (/v1/agents, /v1/vaults, /v1/memory_stores, /v1/skills). ' +
-        'Set ANTHROPIC_API_KEY=sk-ant-api03-* (from https://console.anthropic.com/settings/keys). ' +
+        'Run /login to see setup instructions for obtaining a workspace API key (sk-ant-api03-*) ' +
+        'from https://console.anthropic.com/settings/keys. ' +
         'Subscription OAuth (claude.ai login) cannot reach these endpoints.',
     )
   }
   if (!apiKey.startsWith('sk-ant-api03-')) {
+    // D5: expose at most first 4 chars to avoid leaking high-entropy secret bits into error logs/reports
     throw new Error(
-      `ANTHROPIC_API_KEY must start with sk-ant-api03- (workspace key), got prefix "${apiKey.slice(0, 13)}...". ` +
-        'Obtain a workspace API key from https://console.anthropic.com/settings/keys.',
+      `ANTHROPIC_API_KEY must start with sk-ant-api03- (workspace key), got prefix "${apiKey.slice(0, 4)}...". ` +
+        'Obtain a workspace API key from https://console.anthropic.com/settings/keys. ' +
+        'Run /login to see setup instructions.',
     )
   }
   return { apiKey }

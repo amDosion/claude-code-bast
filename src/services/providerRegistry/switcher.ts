@@ -1,4 +1,3 @@
-import { assertNoAnthropicEnvForOpenAI } from '../auth/hostGuard.js'
 import { findProvider, loadProviders } from './loader.js'
 import type { ProviderConfig } from './types.js'
 
@@ -40,15 +39,11 @@ export function switchProvider(
   id: string,
   providers?: ProviderConfig[],
 ): SwitchProviderResult {
-  // Guard: warn if ANTHROPIC_API_KEY + OpenAI-compat mode are both set.
-  // assertNoAnthropicEnvForOpenAI is warn-only (does not throw).
-  assertNoAnthropicEnvForOpenAI()
-
   const list = providers ?? loadProviders()
   const found = findProvider(id, list)
 
   if (!found) {
-    const ids = list.map((p) => p.id).join(', ')
+    const ids = list.map(p => p.id).join(', ')
     throw new Error(
       `switchProvider: provider "${id}" not found. Available: ${ids}`,
     )
@@ -66,6 +61,23 @@ export function switchProvider(
   // Include the api key env var name so callers can construct the shell snippet.
   // We do NOT read process.env[found.apiKeyEnv] to avoid leaking the key.
   const warnings: string[] = []
+
+  // G3: include ANTHROPIC_API_KEY conflict warning in result.warnings (not just logError)
+  // so that the Ink view (/providers use) can render it to the user rather than losing it
+  // in a side-channel stderr log.
+  const hasOpenAIMode =
+    process.env['CLAUDE_CODE_USE_OPENAI'] === '1' ||
+    Boolean(process.env['OPENAI_API_KEY'])
+  const hasAnthropicKey = Boolean(process.env['ANTHROPIC_API_KEY'])
+  if (hasOpenAIMode && hasAnthropicKey) {
+    warnings.push(
+      'Both ANTHROPIC_API_KEY and OpenAI-compat mode are set. ' +
+        'ANTHROPIC_API_KEY is for Anthropic workspace endpoints (/v1/agents, /v1/vaults). ' +
+        'OpenAI-compat mode routes /v1/messages to a third-party provider. ' +
+        'These are separate planes — verify this is intentional.',
+    )
+  }
+
   if (!process.env[found.apiKeyEnv]) {
     warnings.push(
       `${found.apiKeyEnv} is not set in the current environment. ` +

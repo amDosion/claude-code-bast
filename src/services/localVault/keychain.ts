@@ -50,7 +50,12 @@ async function loadModule(): Promise<KeyringModule> {
   }
 }
 
-/** Reset module cache — for testing only. */
+/**
+ * Reset module cache — for testing only.
+ * B2: intentionally not exported from the package's public API.
+ * Only imported via the tests' mock.module() boundary.
+ * @internal
+ */
 export function _resetKeychainModuleCache(): void {
   _mod = 'not-tried'
 }
@@ -77,21 +82,34 @@ export const tryKeychain = {
   /**
    * Keyring has no native "list all" — we maintain our own index in a
    * dedicated account named __index__.
+   *
+   * A3 fix: a corrupt index throws KeychainUnavailableError so the caller
+   * can fall back to the file vault rather than silently returning [] and
+   * stranding existing keys (they become undeletable via delete()).
+   *
+   * C4 note: index read-modify-write is not atomic across processes. In
+   * practice /local-vault set is user-interactive (not concurrently scripted),
+   * so the advisory risk is acceptable. A future version can use Bun.lock or
+   * an exclusive file lock for cross-process safety.
    */
   async list(): Promise<string[]> {
     const mod = await loadModule()
     const indexEntry = new mod.Entry(SERVICE_NAME, '__index__')
     const raw = indexEntry.getPassword()
     if (!raw) return []
+    let parsed: unknown
     try {
-      const parsed = JSON.parse(raw) as unknown
-      if (Array.isArray(parsed)) {
-        return (parsed as unknown[]).filter(
-          (x): x is string => typeof x === 'string',
-        )
-      }
+      parsed = JSON.parse(raw)
     } catch {
-      // Corrupt index — treat as empty.
+      // A3: corrupt index — throw so caller can fall back, not silently lose key references
+      throw new KeychainUnavailableError(
+        'keychain index is corrupt (invalid JSON). Reset via: /local-vault list (will regenerate index on next set).',
+      )
+    }
+    if (Array.isArray(parsed)) {
+      return (parsed as unknown[]).filter(
+        (x): x is string => typeof x === 'string',
+      )
     }
     return []
   },

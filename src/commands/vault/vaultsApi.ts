@@ -22,6 +22,7 @@ import axios from 'axios'
 import { getOauthConfig } from '../../constants/oauth.js'
 import { assertWorkspaceHost } from '../../services/auth/hostGuard.js'
 import { prepareWorkspaceApiRequest } from '../../utils/teleport/api.js'
+import { sanitizeId } from '../../utils/sanitizeId.js'
 
 export type Vault = {
   vault_id: string
@@ -61,14 +62,7 @@ type ListCredentialsResponse = {
 const VAULTS_BETA_HEADER = 'managed-agents-2026-04-01'
 const MAX_RETRIES = 3
 
-/**
- * Sanitize an ID for error messages — only first 8 chars exposed.
- * Security invariant: full IDs must not appear in error messages.
- */
-function sanitizeId(id: string): string {
-  if (id.length <= 8) return id
-  return `${id.slice(0, 8)}…`
-}
+// sanitizeId imported from ../../utils/sanitizeId.js (H3: single source of truth)
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))

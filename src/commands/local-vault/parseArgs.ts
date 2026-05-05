@@ -42,8 +42,15 @@ export function parseLocalVaultArgs(args: string): LocalVaultArgs {
     if (!key) {
       return { action: 'invalid', reason: `set requires a key name. ${USAGE}` }
     }
-    // Value is everything after <key> (supports spaces in value)
-    const rest = trimmed.slice(trimmed.indexOf(key) + key.length).trim()
+    // D3: reject keys that start with '-' (would be mistaken for flags)
+    if (key.startsWith('-')) {
+      return {
+        action: 'invalid',
+        reason: `Key name must not start with "-" (reserved for flags). ${USAGE}`,
+      }
+    }
+    // D4: value is tokens[2..] joined, not substring math (handles keys with repeated substrings)
+    const rest = tokens.slice(2).join(' ')
     if (!rest) {
       return {
         action: 'invalid',

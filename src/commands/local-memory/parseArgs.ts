@@ -64,9 +64,8 @@ export function parseLocalMemoryArgs(args: string): LocalMemoryArgs {
     if (!key) {
       return { action: 'invalid', reason: `store requires a key. ${USAGE}` }
     }
-    // Value is everything after <key>
-    const keyIdx = trimmed.indexOf(key, trimmed.indexOf(store) + store.length)
-    const rest = trimmed.slice(keyIdx + key.length).trim()
+    // D6: value is tokens[3..] joined, not substring math (handles store/key with repeated substrings)
+    const rest = tokens.slice(3).join(' ')
     if (!rest) {
       return { action: 'invalid', reason: `store requires a value. ${USAGE}` }
     }

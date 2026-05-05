@@ -92,6 +92,15 @@ function classifyError(err: unknown): AgentsApiError {
     if (status === 404) {
       return new AgentsApiError('Agent not found.', 404)
     }
+    // G2: add 429 handler (was missing; other P2 clients have it)
+    if (status === 429) {
+      const retryAfter =
+        (err.response?.headers as Record<string, string> | undefined)?.[
+          'retry-after'
+        ] ?? ''
+      const detail = retryAfter ? ` Retry after ${retryAfter}s.` : ''
+      return new AgentsApiError(`Rate limit exceeded.${detail}`, 429)
+    }
     const msg =
       (err.response?.data as { error?: { message?: string } } | undefined)
         ?.error?.message ?? err.message

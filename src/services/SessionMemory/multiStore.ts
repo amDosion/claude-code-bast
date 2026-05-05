@@ -16,8 +16,9 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { homedir, tmpdir } from 'node:os'
+import { basename, join } from 'node:path'
+import { randomBytes } from 'node:crypto'
 
 // ── Path helpers ──────────────────────────────────────────────────────────────
 
@@ -37,10 +38,53 @@ function getEntryPath(store: string, key: string): string {
   return join(getStoreDir(store), `${safeKey}.md`)
 }
 
+/** Maximum allowed store name length (OS path component limit). */
+const MAX_STORE_NAME_LENGTH = 255
+/** Maximum allowed entry value size: 1 MB. */
+const MAX_VALUE_BYTES = 1_048_576
+
+/**
+ * Validates a store name for path-safety.
+ *
+ * Rejects:
+ *   - empty string
+ *   - names that do not equal their own basename (path-like, e.g. "a/b", "../x")
+ *   - forward slash, backslash, null byte, colon (Windows drive prefix: "C:foo")
+ *   - names starting with "." (hidden/relative marker)
+ *   - the literal ".." string
+ *   - names longer than 255 characters
+ *
+ * E1 fix: hardened against path traversal on Windows and POSIX.
+ */
 function validateStoreName(store: string): void {
-  if (!store || /[/\\]/.test(store) || store.startsWith('.')) {
+  if (!store) {
     throw new Error(
-      `Invalid store name: "${store}". Store names must not contain path separators or start with "."`,
+      'Invalid store name: store name must not be empty.',
+    )
+  }
+  if (store.length > MAX_STORE_NAME_LENGTH) {
+    throw new Error(
+      `Invalid store name: "${store.slice(0, 20)}…" is too long (max ${MAX_STORE_NAME_LENGTH} chars).`,
+    )
+  }
+  // Reject path separators (forward slash, backslash), Windows drive colons.
+  // Null bytes checked separately to avoid biome noControlCharactersInRegex warning.
+  if (/[/\\:]/.test(store) || store.includes('\0')) {
+    throw new Error(
+      `Invalid store name: "${store}" contains illegal characters (path separators, null byte, or colon).`,
+    )
+  }
+  // Reject names starting with "." — covers ".." and hidden names
+  if (store.startsWith('.')) {
+    throw new Error(
+      `Invalid store name: "${store}" must not start with ".".`,
+    )
+  }
+  // Guard: resolved basename must equal the store name itself.
+  // This catches any path-like names that slipped through the above checks.
+  if (basename(store) !== store) {
+    throw new Error(
+      `Invalid store name: "${store}" is path-like and would escape the base directory.`,
     )
   }
 }
@@ -98,12 +142,35 @@ export function archiveStore(store: string): void {
 export function setEntry(store: string, key: string, value: string): void {
   validateStoreName(store)
   validateKey(key)
+
+  // D2: Guard against unbounded value sizes (1 MB limit).
+  // File-fallback vault is not designed for large data blobs.
+  const byteLength = Buffer.byteLength(value, 'utf8')
+  if (byteLength > MAX_VALUE_BYTES) {
+    throw new Error(
+      `Entry value too large: ${byteLength} bytes exceeds the 1 MB limit. ` +
+      'Use external storage for large data.',
+    )
+  }
+
   const storeDir = getStoreDir(store)
   if (!existsSync(storeDir)) {
     mkdirSync(storeDir, { recursive: true })
   }
   const entryPath = getEntryPath(store, key)
-  writeFileSync(entryPath, value, 'utf8')
+
+  // C2: Atomic write — write to a .tmp file then rename.
+  // On POSIX, rename(2) is atomic; on Windows it is best-effort but safe.
+  // This prevents half-written files on crash mid-write.
+  const tmpPath = join(storeDir, `.${randomBytes(8).toString('hex')}.tmp`)
+  try {
+    writeFileSync(tmpPath, value, 'utf8')
+    renameSync(tmpPath, entryPath)
+  } catch (err) {
+    // Clean up tmp file on error
+    try { rmSync(tmpPath, { force: true }) } catch { /* ignore cleanup error */ }
+    throw err
+  }
 }
 
 /** Read an entry from a store. Returns null if not found. */

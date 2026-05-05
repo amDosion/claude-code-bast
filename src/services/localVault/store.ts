@@ -7,13 +7,24 @@
  *   3. Auto-generate + write to file (warns user to backup)
  *
  * Fallback file: ~/.claude/local-vault.enc.json (gitignored)
+ *
+ * Security invariants:
+ *   - AES-256-GCM with per-record random IV; scryptSync KDF for passphrase
+ *   - Vault-level 16-byte random salt stored in vault file header
+ *   - D1: value size capped at MAX_SECRET_BYTES (64 KB)
+ *   - B1: derived key buffer is zeroed after use (best-effort)
+ *   - C1: vault file writes use tmp+rename (atomic on POSIX)
+ *   - C5: passphrase file creation uses 'wx' exclusive flag (no double-write)
+ *   - A2: readVaultFile differentiates ENOENT vs JSON-parse error
+ *   - F1/F2: scryptSync KDF + per-vault salt (no rainbow tables)
+ *   - G4: decryption error includes recovery instructions
  */
 
 import {
   createCipheriv,
   createDecipheriv,
   randomBytes,
-  createHash,
+  scryptSync,
 } from 'node:crypto'
 import {
   readFileSync,
@@ -21,19 +32,51 @@ import {
   existsSync,
   mkdirSync,
   chmodSync,
+  renameSync,
+  rmSync,
 } from 'node:fs'
-import { readFile, writeFile, chmod } from 'node:fs/promises'
-import { homedir } from 'node:os'
+import { readFile, writeFile } from 'node:fs/promises'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { logError } from '../../utils/log.js'
 import { KeychainUnavailableError, tryKeychain } from './keychain.js'
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+/** Maximum secret value size: 64 KB (OS keychain typically < 4 KB; file fallback keeps overhead low). */
+const MAX_SECRET_BYTES = 64 * 1024
+
+/** AES-GCM algorithm. */
+const ALGORITHM = 'aes-256-gcm' as const
+const IV_BYTES = 12
+const TAG_BYTES = 16
+const KEY_BYTES = 32
+const SALT_BYTES = 16
+
+/** scrypt parameters: N=16384 (2^14), r=8, p=1. OWASP-recommended minimum for interactive. */
+const SCRYPT_PARAMS: Parameters<typeof scryptSync>[3] = { N: 16384, r: 8, p: 1 }
 
 // ── Error types ───────────────────────────────────────────────────────────────
 
 export class LocalVaultDecryptionError extends Error {
   constructor(reason: string) {
-    super(`LocalVault decryption failed: ${reason}`)
+    super(
+      `LocalVault decryption failed: ${reason}. ` +
+        'Restore from your backup of ~/.claude/.local-vault-passphrase, ' +
+        'or delete ~/.claude/local-vault.enc.json to reset (DESTROYS ALL SECRETS).',
+    )
     this.name = 'LocalVaultDecryptionError'
+  }
+}
+
+export class LocalVaultValueTooLargeError extends Error {
+  constructor(byteLength: number) {
+    super(
+      `LocalVault: secret value is too large (${byteLength} bytes). ` +
+        `Maximum allowed is ${MAX_SECRET_BYTES} bytes (${MAX_SECRET_BYTES / 1024} KB). ` +
+        'Use external storage for large data.',
+    )
+    this.name = 'LocalVaultValueTooLargeError'
   }
 }
 
@@ -53,12 +96,24 @@ function getPassphraseFilePath(): string {
 
 // ── Passphrase management ─────────────────────────────────────────────────────
 
-function deriveKey(passphrase: string): Buffer {
-  // PBKDF2-equivalent via a single SHA-256 hash is intentionally simple;
-  // the file is on the local filesystem which is the threat model boundary.
-  return createHash('sha256').update(passphrase).digest()
+/**
+ * Derives a 32-byte AES key from a passphrase + salt using scryptSync.
+ *
+ * F1/F2 fix: replaces single SHA-256 with memory-hard KDF + per-vault salt.
+ * The salt is stored in the vault file header so it survives process restarts.
+ * For the auto-generated 64-hex passphrase (256 bits entropy) this is defense-
+ * in-depth; for user-provided low-entropy passphrases it is mandatory.
+ */
+function deriveKey(passphrase: string, salt: Buffer): Buffer {
+  return scryptSync(passphrase, salt, KEY_BYTES, SCRYPT_PARAMS) as Buffer
 }
 
+/**
+ * Get or create the passphrase.
+ *
+ * C5 fix: uses { flag: 'wx' } (exclusive create) for atomic first-run write.
+ * If EEXIST (race: another process wrote first), re-reads from disk.
+ */
 async function getOrCreatePassphrase(): Promise<string> {
   // Priority 1: env var
   const envVal = process.env['CLAUDE_LOCAL_VAULT_PASSPHRASE']
@@ -71,42 +126,53 @@ async function getOrCreatePassphrase(): Promise<string> {
     return readFileSync(passphraseFile, 'utf8').trim()
   }
 
-  // Priority 3: auto-generate + write to file
+  // Priority 3: auto-generate + write to file (exclusive create to avoid double-write)
   const claudeDir = getClaudeDir()
   if (!existsSync(claudeDir)) {
     mkdirSync(claudeDir, { recursive: true })
   }
 
   const generated = randomBytes(32).toString('hex')
-  writeFileSync(passphraseFile, generated, { encoding: 'utf8', mode: 0o600 })
+  try {
+    // C5: 'wx' flag means exclusive create — EEXIST if another process wrote first
+    writeFileSync(passphraseFile, generated, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
+  } catch (err: unknown) {
+    const code = (err as NodeJS.ErrnoException).code
+    if (code === 'EEXIST') {
+      // Another concurrent first-run wrote the file — use theirs
+      return readFileSync(passphraseFile, 'utf8').trim()
+    }
+    throw err
+  }
+
   // Ensure mode 600 even if umask interfered
   try {
     chmodSync(passphraseFile, 0o600)
   } catch {
-    // Windows — best effort; warn user
+    // A4: Windows — best effort; user cannot act before encryption proceeds.
+    // Recommend env var as the secure alternative.
     logError(
       new Error(
-        'LocalVault: could not set passphrase file mode 600 (Windows). ' +
-          'Protect ~/.claude/.local-vault-passphrase manually.',
+        'LocalVault: could not set passphrase file permissions on Windows. ' +
+          'To secure your vault, set CLAUDE_LOCAL_VAULT_PASSPHRASE env var instead of relying on the passphrase file. ' +
+          'Run: icacls "%USERPROFILE%\\.claude\\.local-vault-passphrase" /inheritance:r /grant:r "%USERNAME%":F',
       ),
     )
   }
 
-  console.warn(
-    '[LocalVault] Generated new passphrase file: ' +
-      passphraseFile +
-      '\n' +
-      '  Back it up! Losing this file means losing access to your encrypted vault.',
+  // E5: Use logError (consistent with rest of file) instead of console.warn
+  logError(
+    new Error(
+      '[LocalVault] Generated new passphrase file: ' +
+        passphraseFile +
+        ' — Back it up! Losing this file means losing access to your encrypted vault.',
+    ),
   )
 
   return generated
 }
 
-// ── Encrypted file store ──────────────────────────────────────────────────────
-
-const ALGORITHM = 'aes-256-gcm' as const
-const IV_BYTES = 12
-const TAG_BYTES = 16
+// ── Vault file format ─────────────────────────────────────────────────────────
 
 type EncryptedRecord = {
   iv: string // hex
@@ -114,12 +180,22 @@ type EncryptedRecord = {
   data: string // hex
 }
 
-type VaultFile = Record<string, EncryptedRecord>
+type VaultFile = {
+  /** F1/F2: per-vault KDF salt, 32 hex chars (16 bytes). */
+  _salt?: string
+  /** Version marker for forward compatibility. */
+  _version?: number
+  [key: string]: EncryptedRecord | string | number | undefined
+}
 
-function encrypt(plaintext: string, key: Buffer): EncryptedRecord {
+// ── Crypto primitives ─────────────────────────────────────────────────────────
+
+function encrypt(plaintext: string, key: Buffer, entryKey: string): EncryptedRecord {
   // New IV per encryption — invariant: no IV reuse
   const iv = randomBytes(IV_BYTES)
   const cipher = createCipheriv(ALGORITHM, key, iv)
+  // F3: bind entry key as AAD so swapping records fails GCM authentication
+  cipher.setAAD(Buffer.from(entryKey, 'utf8'))
   const encrypted = Buffer.concat([
     cipher.update(plaintext, 'utf8'),
     cipher.final(),
@@ -132,7 +208,7 @@ function encrypt(plaintext: string, key: Buffer): EncryptedRecord {
   }
 }
 
-function decrypt(record: EncryptedRecord, key: Buffer): string {
+function decrypt(record: EncryptedRecord, key: Buffer, entryKey: string): string {
   let iv: Buffer
   let tag: Buffer
   let data: Buffer
@@ -150,34 +226,52 @@ function decrypt(record: EncryptedRecord, key: Buffer): string {
 
   const decipher = createDecipheriv(ALGORITHM, key, iv)
   decipher.setAuthTag(tag)
+  // F3: must supply the same AAD used during encryption
+  decipher.setAAD(Buffer.from(entryKey, 'utf8'))
   try {
     const decrypted = Buffer.concat([decipher.update(data), decipher.final()])
     return decrypted.toString('utf8')
   } catch {
-    // Do not leak partial decrypted bytes — invariant from plan §安全 invariant 6
+    // Do not leak partial decrypted bytes
     throw new LocalVaultDecryptionError(
       'authentication tag mismatch — wrong passphrase or tampered data',
     )
   }
 }
 
+// ── Vault file I/O ────────────────────────────────────────────────────────────
+
 async function readVaultFile(): Promise<VaultFile> {
   const filePath = getVaultFilePath()
   if (!existsSync(filePath)) return {}
+  let raw: string
   try {
-    const raw = await readFile(filePath, 'utf8')
-    const parsed = JSON.parse(raw) as unknown
-    if (
-      typeof parsed !== 'object' ||
-      parsed === null ||
-      Array.isArray(parsed)
-    ) {
-      return {}
-    }
-    return parsed as VaultFile
-  } catch {
-    return {}
+    raw = await readFile(filePath, 'utf8')
+  } catch (err: unknown) {
+    const code = (err as NodeJS.ErrnoException).code
+    if (code === 'ENOENT') return {}
+    // Rethrow unexpected read errors (permissions, hardware fault)
+    throw err
   }
+  // A2: differentiate parse error from absence
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    throw new LocalVaultDecryptionError(
+      'vault file is corrupt (invalid JSON) — restore from backup',
+    )
+  }
+  if (
+    typeof parsed !== 'object' ||
+    parsed === null ||
+    Array.isArray(parsed)
+  ) {
+    throw new LocalVaultDecryptionError(
+      'vault file has unexpected format — restore from backup',
+    )
+  }
+  return parsed as VaultFile
 }
 
 async function writeVaultFile(data: VaultFile): Promise<void> {
@@ -186,12 +280,39 @@ async function writeVaultFile(data: VaultFile): Promise<void> {
     mkdirSync(claudeDir, { recursive: true })
   }
   const filePath = getVaultFilePath()
-  await writeFile(filePath, JSON.stringify(data, null, 2), 'utf8')
+  // C1: atomic write — tmp file + rename (POSIX rename(2) is atomic)
+  const tmpPath = join(tmpdir(), `.local-vault-${randomBytes(8).toString('hex')}.tmp`)
+  try {
+    await writeFile(tmpPath, JSON.stringify(data, null, 2), 'utf8')
+    renameSync(tmpPath, filePath)
+  } catch (err) {
+    // Clean up tmp on failure
+    try { rmSync(tmpPath, { force: true }) } catch { /* ignore cleanup error */ }
+    throw err
+  }
+}
+
+/** Get or create the per-vault salt, storing it in the vault file. */
+async function getOrCreateSalt(vaultData: VaultFile): Promise<Buffer> {
+  if (typeof vaultData['_salt'] === 'string' && vaultData['_salt'].length === SALT_BYTES * 2) {
+    return Buffer.from(vaultData['_salt'], 'hex')
+  }
+  // Generate new salt and persist it (the caller will write the vault file)
+  const salt = randomBytes(SALT_BYTES)
+  vaultData['_salt'] = salt.toString('hex')
+  vaultData['_version'] = 2
+  return salt
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export async function setSecret(key: string, value: string): Promise<void> {
+  // D1: Guard against unbounded value sizes
+  const byteLength = Buffer.byteLength(value, 'utf8')
+  if (byteLength > MAX_SECRET_BYTES) {
+    throw new LocalVaultValueTooLargeError(byteLength)
+  }
+
   // Primary: OS keychain
   try {
     await tryKeychain.set(key, value)
@@ -202,18 +323,28 @@ export async function setSecret(key: string, value: string): Promise<void> {
       throw err
     }
     // Keychain unavailable → fall through to file
-    console.warn(
-      '[LocalVault] OS keychain not available, falling back to encrypted file. ' +
-        'Install platform keychain or set CLAUDE_LOCAL_VAULT_PASSPHRASE env.',
+    // A: Not silently swallowed; user gets a console warning each call
+    logError(
+      new Error(
+        '[LocalVault] OS keychain not available, falling back to encrypted file. ' +
+          'Install platform keychain or set CLAUDE_LOCAL_VAULT_PASSPHRASE env.',
+      ),
     )
   }
 
   // Fallback: encrypted file
   const passphrase = await getOrCreatePassphrase()
-  const key256 = deriveKey(passphrase)
   const vaultData = await readVaultFile()
-  vaultData[key] = encrypt(value, key256)
-  await writeVaultFile(vaultData)
+  const salt = await getOrCreateSalt(vaultData)
+
+  // B1: zero the key buffer after use regardless of success/failure
+  const key256 = deriveKey(passphrase, salt)
+  try {
+    vaultData[key] = encrypt(value, key256, key)
+    await writeVaultFile(vaultData)
+  } finally {
+    key256.fill(0)
+  }
 }
 
 export async function getSecret(key: string): Promise<string | null> {
@@ -225,16 +356,34 @@ export async function getSecret(key: string): Promise<string | null> {
     if (!(err instanceof KeychainUnavailableError)) {
       throw err
     }
+    // Keychain unavailable — fall through to file (no log needed on read path)
   }
 
   // Fallback: encrypted file
   const vaultData = await readVaultFile()
   const record = vaultData[key]
-  if (!record) return null
+  if (!record || typeof record !== 'object' || Array.isArray(record)) return null
+
+  // Detect old format: no salt field → record was encrypted without scrypt KDF.
+  // The new AAD binding also means old records will fail authentication.
+  // Instruct user to re-set secrets encrypted under the old format.
+  if (typeof vaultData['_salt'] !== 'string') {
+    throw new LocalVaultDecryptionError(
+      'vault was created with an older format (no KDF salt). ' +
+        'Please re-set your secrets using /local-vault set to upgrade to the secure format',
+    )
+  }
 
   const passphrase = await getOrCreatePassphrase()
-  const key256 = deriveKey(passphrase)
-  return decrypt(record, key256)
+  const salt = Buffer.from(vaultData['_salt'], 'hex')
+
+  // B1: zero the key buffer after use
+  const key256 = deriveKey(passphrase, salt)
+  try {
+    return decrypt(record as EncryptedRecord, key256, key)
+  } finally {
+    key256.fill(0)
+  }
 }
 
 export async function deleteSecret(key: string): Promise<boolean> {
@@ -270,7 +419,8 @@ export async function listKeys(): Promise<string[]> {
 
   // Fallback: encrypted file keys (no decryption needed — just keys)
   const vaultData = await readVaultFile()
-  return Object.keys(vaultData)
+  // Filter out internal metadata keys
+  return Object.keys(vaultData).filter(k => !k.startsWith('_'))
 }
 
 /** Mask a secret value for display: first 4 chars + ... + last 2 chars + length */

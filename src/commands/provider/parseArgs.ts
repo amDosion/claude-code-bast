@@ -16,8 +16,7 @@ export type ProviderArgs =
   | { action: 'add' }
   | { action: 'invalid'; reason: string }
 
-const USAGE =
-  'Usage: /providers [list | show | use <id> | add]'
+const USAGE = 'Usage: /providers [list | show | use <id> | add]'
 
 export function parseProviderArgs(args: string): ProviderArgs {
   const trimmed = args.trim()
@@ -42,8 +41,15 @@ export function parseProviderArgs(args: string): ProviderArgs {
         reason: `use requires a provider id, e.g. use cerebras\n${USAGE}`,
       }
     }
-    // Take only the first token as the id
-    const id = rest.split(/\s+/)[0] ?? rest
+    const parts = rest.split(/\s+/)
+    const id = parts[0] ?? rest
+    // D7: warn if extra tokens follow the id — likely a typo
+    if (parts.length > 1) {
+      return {
+        action: 'invalid',
+        reason: `use expects a single provider id but got extra tokens: "${parts.slice(1).join(' ')}". ${USAGE}`,
+      }
+    }
     return { action: 'use', id }
   }
 
