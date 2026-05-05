@@ -8,7 +8,7 @@ import {
 import type { LocalJSXCommandContext } from '../../commands.js'
 import { ConfigurableShortcutHint } from '../../components/ConfigurableShortcutHint.js'
 import { ConsoleOAuthFlow } from '../../components/ConsoleOAuthFlow.js'
-import { Dialog } from '@anthropic/ink'
+import { Box, Dialog } from '@anthropic/ink'
 import { useMainLoopModel } from '../../hooks/useMainLoopModel.js'
 import { Text } from '@anthropic/ink'
 import { refreshGrowthBookAfterAuthChange } from '../../services/analytics/growthbook.js'
@@ -21,13 +21,19 @@ import {
   resetAutoModeGateCheck,
 } from '../../utils/permissions/bypassPermissionsKillswitch.js'
 import { resetUserCache } from '../../utils/user.js'
+import { AuthPlaneSummary } from './AuthPlaneSummary.js'
+import { getAuthStatus } from './getAuthStatus.js'
 
 export async function call(
   onDone: LocalJSXCommandOnDone,
   context: LocalJSXCommandContext,
 ): Promise<React.ReactNode> {
+  // Snapshot auth state once at call time (pure, no network)
+  const authStatus = getAuthStatus()
+
   return (
     <Login
+      authStatus={authStatus}
       onDone={async success => {
         context.onChangeAPIKey()
         // Signature-bearing blocks (thinking, connector_text) are bound to the API key —
@@ -74,6 +80,8 @@ export async function call(
 export function Login(props: {
   onDone: (success: boolean, mainLoopModel: string) => void
   startingMessage?: string
+  /** Pre-computed auth status snapshot — passed from call() to avoid re-computing */
+  authStatus?: import('./getAuthStatus.js').AuthStatus
 }): React.ReactNode {
   const mainLoopModel = useMainLoopModel()
 
@@ -95,10 +103,17 @@ export function Login(props: {
         )
       }
     >
-      <ConsoleOAuthFlow
-        onDone={() => props.onDone(true, mainLoopModel)}
-        startingMessage={props.startingMessage}
-      />
+      <Box flexDirection="column">
+        {props.authStatus !== undefined && (
+          <Box marginBottom={1}>
+            <AuthPlaneSummary status={props.authStatus} />
+          </Box>
+        )}
+        <ConsoleOAuthFlow
+          onDone={() => props.onDone(true, mainLoopModel)}
+          startingMessage={props.startingMessage}
+        />
+      </Box>
     </Dialog>
   )
 }
