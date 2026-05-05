@@ -31,7 +31,10 @@ export type ProviderKind = z.infer<typeof ProviderKindSchema>
  * - compatRule: selects CompatProfile from providerCompatMatrix
  */
 export const ProviderConfigSchema = z.object({
-  id: z.string().min(1).regex(/^[a-z0-9-]+$/, 'id must be kebab-case'),
+  id: z
+    .string()
+    .min(1)
+    .regex(/^[a-z0-9-]+$/, 'id must be kebab-case'),
   kind: ProviderKindSchema,
   baseUrl: z.string().url(),
   apiKeyEnv: z.string().min(1),

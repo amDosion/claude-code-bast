@@ -96,9 +96,7 @@ describe('applyCompatRule - stream_options stripping', () => {
 describe('applyCompatRule - thinking field stripping', () => {
   test('strips thinking field from messages for cerebras', () => {
     const body = {
-      messages: [
-        { role: 'user', content: 'hi', thinking: { budget: 1000 } },
-      ],
+      messages: [{ role: 'user', content: 'hi', thinking: { budget: 1000 } }],
     }
     const result = applyCompatRule(body, 'cerebras')
     const msgs = result['messages'] as Record<string, unknown>[]

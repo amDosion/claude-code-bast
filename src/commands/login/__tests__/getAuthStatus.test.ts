@@ -103,7 +103,8 @@ describe('getAuthStatus', () => {
 
   test('workspaceKey.set=true, prefixValid=true with valid sk-ant-api03- prefix', async () => {
     // 52-char key: prefix (14) + 38 chars
-    process.env.ANTHROPIC_API_KEY = 'sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789'
+    process.env.ANTHROPIC_API_KEY =
+      'sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789'
     mock.module('src/utils/auth.ts', () => ({
       getClaudeAIOAuthTokens: () => null,
       hasAnthropicApiKeyAuth: () => true,
@@ -116,13 +117,16 @@ describe('getAuthStatus', () => {
     expect(status.workspaceKey.prefixValid).toBe(true)
     expect(status.workspaceKey.keyPreview).not.toBeNull()
     // Preview must NOT include full key value
-    expect(status.workspaceKey.keyPreview).not.toContain('AbCdEfGhIjKlMnOpQrStUvWxYz0123456789')
+    expect(status.workspaceKey.keyPreview).not.toContain(
+      'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789',
+    )
     // Preview must contain masked form
     expect(status.workspaceKey.keyPreview).toContain('...')
   })
 
   test('workspaceKey.prefixValid=false when key has wrong prefix', async () => {
-    process.env.ANTHROPIC_API_KEY = 'sk-wrong-prefix-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789'
+    process.env.ANTHROPIC_API_KEY =
+      'sk-wrong-prefix-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789'
     mock.module('src/utils/auth.ts', () => ({
       getClaudeAIOAuthTokens: () => null,
       hasAnthropicApiKeyAuth: () => true,

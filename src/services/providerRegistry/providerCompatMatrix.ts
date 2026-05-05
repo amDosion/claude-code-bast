@@ -88,8 +88,7 @@ export function getDeepSeekReasoningMode(
 ): 'thinking-only' | 'thinking+tools' | 'normal' {
   const hasReasoning = Boolean(assistantMessage['reasoning_content'])
   const toolCalls = assistantMessage['tool_calls']
-  const hasTools =
-    Array.isArray(toolCalls) && toolCalls.length > 0
+  const hasTools = Array.isArray(toolCalls) && toolCalls.length > 0
 
   if (hasReasoning && hasTools) return 'thinking+tools'
   if (hasReasoning) return 'thinking-only'
@@ -117,8 +116,10 @@ export function applyCompatRule(
       typeof streamOptions === 'object' &&
       !Array.isArray(streamOptions)
     ) {
-      const { include_usage: _dropped, ...rest } =
-        streamOptions as Record<string, unknown>
+      const { include_usage: _dropped, ...rest } = streamOptions as Record<
+        string,
+        unknown
+      >
       if (Object.keys(rest).length === 0) {
         delete result['stream_options']
       } else {
@@ -130,7 +131,7 @@ export function applyCompatRule(
   // Strip 'thinking' field from messages if endpoint doesn't support it
   if (!profile.supportsThinkingField && Array.isArray(result['messages'])) {
     result['messages'] = (result['messages'] as Record<string, unknown>[]).map(
-      (msg) => {
+      msg => {
         if ('thinking' in msg) {
           const { thinking: _dropped, ...rest } = msg
           return rest
@@ -146,7 +147,7 @@ export function applyCompatRule(
     Array.isArray(result['messages'])
   ) {
     result['messages'] = (result['messages'] as Record<string, unknown>[]).map(
-      (msg) => {
+      msg => {
         if ('reasoning_content' in msg) {
           const { reasoning_content: _dropped, ...rest } = msg
           return rest
@@ -164,7 +165,7 @@ export function applyCompatRule(
     if (!isThinkingModel && Array.isArray(result['messages'])) {
       result['messages'] = (
         result['messages'] as Record<string, unknown>[]
-      ).map((msg) => {
+      ).map(msg => {
         if ('reasoning_content' in msg) {
           const { reasoning_content: _dropped, ...rest } = msg
           return rest

@@ -537,7 +537,10 @@ describe('invariant: x-api-key present, no Authorization, no x-organization-uuid
   test('buildHeaders returns x-api-key header (workspace key)', async () => {
     axiosGetMock.mockResolvedValueOnce({ data: { data: [] }, status: 200 })
     await listStores()
-    const calls = axiosGetMock.mock.calls as unknown as [string, { headers: Record<string, string> }][]
+    const calls = axiosGetMock.mock.calls as unknown as [
+      string,
+      { headers: Record<string, string> },
+    ][]
     const headers = calls[0]?.[1]?.headers ?? {}
     expect(headers['x-api-key']).toBe(mockApiKey)
   })
@@ -545,7 +548,10 @@ describe('invariant: x-api-key present, no Authorization, no x-organization-uuid
   test('buildHeaders does NOT include Authorization header', async () => {
     axiosGetMock.mockResolvedValueOnce({ data: { data: [] }, status: 200 })
     await listStores()
-    const calls = axiosGetMock.mock.calls as unknown as [string, { headers: Record<string, string> }][]
+    const calls = axiosGetMock.mock.calls as unknown as [
+      string,
+      { headers: Record<string, string> },
+    ][]
     const headers = calls[0]?.[1]?.headers ?? {}
     expect(headers['Authorization']).toBeUndefined()
   })
@@ -553,7 +559,10 @@ describe('invariant: x-api-key present, no Authorization, no x-organization-uuid
   test('buildHeaders does NOT include x-organization-uuid header', async () => {
     axiosGetMock.mockResolvedValueOnce({ data: { data: [] }, status: 200 })
     await listStores()
-    const calls = axiosGetMock.mock.calls as unknown as [string, { headers: Record<string, string> }][]
+    const calls = axiosGetMock.mock.calls as unknown as [
+      string,
+      { headers: Record<string, string> },
+    ][]
     const headers = calls[0]?.[1]?.headers ?? {}
     expect(headers['x-organization-uuid']).toBeUndefined()
   })

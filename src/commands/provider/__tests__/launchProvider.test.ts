@@ -36,9 +36,11 @@ afterEach(() => {
 const mockContext = {} as Parameters<typeof callProviders>[1]
 
 // We test through callProviders which exercises the full dispatch
-let callProviders: Awaited<ReturnType<(typeof import('../launchProvider.js'))['callProviders']>> extends never
+let callProviders: Awaited<
+  ReturnType<typeof import('../launchProvider.js')['callProviders']>
+> extends never
   ? never
-  : (typeof import('../launchProvider.js'))['callProviders']
+  : typeof import('../launchProvider.js')['callProviders']
 
 beforeEach(async () => {
   const m = await import('../launchProvider.js')
@@ -49,7 +51,9 @@ describe('callProviders - list', () => {
   test('list sub-command calls onDone with provider count', async () => {
     const calls: string[] = []
     await callProviders(
-      (msg) => { if (msg) calls.push(msg) },
+      msg => {
+        if (msg) calls.push(msg)
+      },
       mockContext,
       'list',
     )
@@ -59,7 +63,9 @@ describe('callProviders - list', () => {
   test('empty args defaults to list', async () => {
     const calls: string[] = []
     await callProviders(
-      (msg) => { if (msg) calls.push(msg) },
+      msg => {
+        if (msg) calls.push(msg)
+      },
       mockContext,
       '',
     )
@@ -71,7 +77,9 @@ describe('callProviders - show', () => {
   test('show with no active provider reports none', async () => {
     const calls: string[] = []
     await callProviders(
-      (msg) => { if (msg) calls.push(msg) },
+      msg => {
+        if (msg) calls.push(msg)
+      },
       mockContext,
       'show',
     )
@@ -83,7 +91,9 @@ describe('callProviders - show', () => {
     process.env['OPENAI_BASE_URL'] = 'https://api.cerebras.ai/v1'
     const calls: string[] = []
     await callProviders(
-      (msg) => { if (msg) calls.push(msg) },
+      msg => {
+        if (msg) calls.push(msg)
+      },
       mockContext,
       'show',
     )
@@ -97,7 +107,9 @@ describe('callProviders - use', () => {
   test('use cerebras prints shell block in onDone message', async () => {
     const calls: string[] = []
     await callProviders(
-      (msg) => { if (msg) calls.push(msg) },
+      msg => {
+        if (msg) calls.push(msg)
+      },
       mockContext,
       'use cerebras',
     )
@@ -107,7 +119,9 @@ describe('callProviders - use', () => {
   test('use unknown provider reports error', async () => {
     const calls: string[] = []
     await callProviders(
-      (msg) => { if (msg) calls.push(msg) },
+      msg => {
+        if (msg) calls.push(msg)
+      },
       mockContext,
       'use unknown-provider-xyz',
     )
@@ -117,7 +131,9 @@ describe('callProviders - use', () => {
   test('use with no id reports invalid', async () => {
     const calls: string[] = []
     await callProviders(
-      (msg) => { if (msg) calls.push(msg) },
+      msg => {
+        if (msg) calls.push(msg)
+      },
       mockContext,
       'use',
     )
@@ -126,11 +142,7 @@ describe('callProviders - use', () => {
 
   test('use does NOT mutate OPENAI_BASE_URL', async () => {
     const before = process.env['OPENAI_BASE_URL']
-    await callProviders(
-      () => {},
-      mockContext,
-      'use groq',
-    )
+    await callProviders(() => {}, mockContext, 'use groq')
     expect(process.env['OPENAI_BASE_URL']).toBe(before)
   })
 })
@@ -139,7 +151,9 @@ describe('callProviders - add', () => {
   test('add returns guidance message', async () => {
     const calls: string[] = []
     await callProviders(
-      (msg) => { if (msg) calls.push(msg) },
+      msg => {
+        if (msg) calls.push(msg)
+      },
       mockContext,
       'add',
     )
@@ -151,7 +165,9 @@ describe('callProviders - invalid', () => {
   test('unknown sub-command reports error', async () => {
     const calls: string[] = []
     await callProviders(
-      (msg) => { if (msg) calls.push(msg) },
+      msg => {
+        if (msg) calls.push(msg)
+      },
       mockContext,
       'frobnicate',
     )
