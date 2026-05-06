@@ -58,9 +58,7 @@ const MAX_VALUE_BYTES = 1_048_576
  */
 function validateStoreName(store: string): void {
   if (!store) {
-    throw new Error(
-      'Invalid store name: store name must not be empty.',
-    )
+    throw new Error('Invalid store name: store name must not be empty.')
   }
   if (store.length > MAX_STORE_NAME_LENGTH) {
     throw new Error(
@@ -76,9 +74,7 @@ function validateStoreName(store: string): void {
   }
   // Reject names starting with "." — covers ".." and hidden names
   if (store.startsWith('.')) {
-    throw new Error(
-      `Invalid store name: "${store}" must not start with ".".`,
-    )
+    throw new Error(`Invalid store name: "${store}" must not start with ".".`)
   }
   // Guard: resolved basename must equal the store name itself.
   // This catches any path-like names that slipped through the above checks.
@@ -149,7 +145,7 @@ export function setEntry(store: string, key: string, value: string): void {
   if (byteLength > MAX_VALUE_BYTES) {
     throw new Error(
       `Entry value too large: ${byteLength} bytes exceeds the 1 MB limit. ` +
-      'Use external storage for large data.',
+        'Use external storage for large data.',
     )
   }
 
@@ -168,7 +164,11 @@ export function setEntry(store: string, key: string, value: string): void {
     renameSync(tmpPath, entryPath)
   } catch (err) {
     // Clean up tmp file on error
-    try { rmSync(tmpPath, { force: true }) } catch { /* ignore cleanup error */ }
+    try {
+      rmSync(tmpPath, { force: true })
+    } catch {
+      /* ignore cleanup error */
+    }
     throw err
   }
 }

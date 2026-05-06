@@ -177,7 +177,8 @@ function providerConfigEqual(a: ProviderConfig, b: ProviderConfig): boolean {
   const keysB = Object.keys(b).sort()
   if (keysA.length !== keysB.length) return false
   for (const k of keysA) {
-    if (a[k as keyof ProviderConfig] !== b[k as keyof ProviderConfig]) return false
+    if (a[k as keyof ProviderConfig] !== b[k as keyof ProviderConfig])
+      return false
   }
   return true
 }
@@ -222,12 +223,19 @@ export function saveProviders(providers: ProviderConfig[]): ProviderConfig[] {
   }
 
   // C3: atomic write — tmp file + rename prevents lost-update on concurrent save
-  const tmpPath = join(tmpdir(), `.providers-${randomBytes(8).toString('hex')}.tmp`)
+  const tmpPath = join(
+    tmpdir(),
+    `.providers-${randomBytes(8).toString('hex')}.tmp`,
+  )
   try {
     writeFileSync(tmpPath, JSON.stringify(toWrite, null, 2), 'utf-8')
     renameSync(tmpPath, filePath)
   } catch (err) {
-    try { renameSync(tmpPath, tmpPath + '.cleanup') } catch { /* ignore */ }
+    try {
+      renameSync(tmpPath, tmpPath + '.cleanup')
+    } catch {
+      /* ignore */
+    }
     throw err
   }
 

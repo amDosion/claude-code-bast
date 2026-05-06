@@ -1,4 +1,12 @@
-import { describe, test, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test'
+import {
+  describe,
+  test,
+  expect,
+  mock,
+  beforeEach,
+  afterEach,
+  spyOn,
+} from 'bun:test'
 import {
   mkdtempSync,
   rmSync,
@@ -125,7 +133,9 @@ describe('store (AES-256-GCM file fallback)', () => {
   test('corrupted JSON vault file → getSecret throws LocalVaultDecryptionError (A2 fix)', async () => {
     writeFileSync(join(tmpDir, 'local-vault.enc.json'), 'not-valid-json')
     const { getSecret, LocalVaultDecryptionError } = await import('../store.js')
-    await expect(getSecret('ANY_KEY')).rejects.toBeInstanceOf(LocalVaultDecryptionError)
+    await expect(getSecret('ANY_KEY')).rejects.toBeInstanceOf(
+      LocalVaultDecryptionError,
+    )
   })
 
   test('value at exactly 64KB round-trips successfully', async () => {
@@ -137,9 +147,13 @@ describe('store (AES-256-GCM file fallback)', () => {
   })
 
   test('value over 64KB is rejected by setSecret (D1 fix)', async () => {
-    const { setSecret, LocalVaultValueTooLargeError } = await import('../store.js')
+    const { setSecret, LocalVaultValueTooLargeError } = await import(
+      '../store.js'
+    )
     const tooLarge = 'X'.repeat(64 * 1024 + 1)
-    await expect(setSecret('LARGE_KEY', tooLarge)).rejects.toBeInstanceOf(LocalVaultValueTooLargeError)
+    await expect(setSecret('LARGE_KEY', tooLarge)).rejects.toBeInstanceOf(
+      LocalVaultValueTooLargeError,
+    )
   })
 
   test('Unicode key round-trip', async () => {
@@ -209,7 +223,8 @@ describe('store: security invariants (I1)', () => {
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'vault-sec-'))
     process.env['CLAUDE_CONFIG_DIR'] = tmpDir
-    process.env['CLAUDE_LOCAL_VAULT_PASSPHRASE'] = 'test-passphrase-fixed-32chars-xxx'
+    process.env['CLAUDE_LOCAL_VAULT_PASSPHRASE'] =
+      'test-passphrase-fixed-32chars-xxx'
     keychainMock.set.mockImplementation(keychainUnavailable)
     keychainMock.get.mockImplementation(keychainUnavailable)
     keychainMock.delete.mockImplementation(keychainUnavailable)
@@ -253,7 +268,8 @@ describe('store: AES-GCM tamper detection (I2)', () => {
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'vault-tamper-'))
     process.env['CLAUDE_CONFIG_DIR'] = tmpDir
-    process.env['CLAUDE_LOCAL_VAULT_PASSPHRASE'] = 'test-passphrase-fixed-32chars-xxx'
+    process.env['CLAUDE_LOCAL_VAULT_PASSPHRASE'] =
+      'test-passphrase-fixed-32chars-xxx'
     keychainMock.set.mockImplementation(keychainUnavailable)
     keychainMock.get.mockImplementation(keychainUnavailable)
     keychainMock.delete.mockImplementation(keychainUnavailable)
@@ -269,30 +285,51 @@ describe('store: AES-GCM tamper detection (I2)', () => {
   })
 
   test('flipping a byte in data causes LocalVaultDecryptionError', async () => {
-    const { setSecret, getSecret, LocalVaultDecryptionError } = await import('../store.js')
+    const { setSecret, getSecret, LocalVaultDecryptionError } = await import(
+      '../store.js'
+    )
     await setSecret('TAMPER_KEY', 'original-value-to-tamper')
     const vaultPath = join(tmpDir, 'local-vault.enc.json')
-    const vault = JSON.parse(readFileSync(vaultPath, 'utf8')) as Record<string, { iv: string; tag: string; data: string }>
+    const vault = JSON.parse(readFileSync(vaultPath, 'utf8')) as Record<
+      string,
+      { iv: string; tag: string; data: string }
+    >
     // Flip last byte of data hex
     const record = vault['TAMPER_KEY']!
     const dataHex = record.data
-    const flippedByte = (parseInt(dataHex.slice(-2), 16) ^ 0xff).toString(16).padStart(2, '0')
-    vault['TAMPER_KEY'] = { ...record, data: dataHex.slice(0, -2) + flippedByte }
+    const flippedByte = (parseInt(dataHex.slice(-2), 16) ^ 0xff)
+      .toString(16)
+      .padStart(2, '0')
+    vault['TAMPER_KEY'] = {
+      ...record,
+      data: dataHex.slice(0, -2) + flippedByte,
+    }
     writeFileSync(vaultPath, JSON.stringify(vault), 'utf8')
-    await expect(getSecret('TAMPER_KEY')).rejects.toBeInstanceOf(LocalVaultDecryptionError)
+    await expect(getSecret('TAMPER_KEY')).rejects.toBeInstanceOf(
+      LocalVaultDecryptionError,
+    )
   })
 
   test('flipping a byte in tag causes LocalVaultDecryptionError', async () => {
-    const { setSecret, getSecret, LocalVaultDecryptionError } = await import('../store.js')
+    const { setSecret, getSecret, LocalVaultDecryptionError } = await import(
+      '../store.js'
+    )
     await setSecret('TAMPER_TAG', 'original-value-tag-tamper')
     const vaultPath = join(tmpDir, 'local-vault.enc.json')
-    const vault = JSON.parse(readFileSync(vaultPath, 'utf8')) as Record<string, { iv: string; tag: string; data: string }>
+    const vault = JSON.parse(readFileSync(vaultPath, 'utf8')) as Record<
+      string,
+      { iv: string; tag: string; data: string }
+    >
     const record = vault['TAMPER_TAG']!
     const tagHex = record.tag
-    const flippedByte = (parseInt(tagHex.slice(-2), 16) ^ 0xff).toString(16).padStart(2, '0')
+    const flippedByte = (parseInt(tagHex.slice(-2), 16) ^ 0xff)
+      .toString(16)
+      .padStart(2, '0')
     vault['TAMPER_TAG'] = { ...record, tag: tagHex.slice(0, -2) + flippedByte }
     writeFileSync(vaultPath, JSON.stringify(vault), 'utf8')
-    await expect(getSecret('TAMPER_TAG')).rejects.toBeInstanceOf(LocalVaultDecryptionError)
+    await expect(getSecret('TAMPER_TAG')).rejects.toBeInstanceOf(
+      LocalVaultDecryptionError,
+    )
   })
 })
 
@@ -304,7 +341,8 @@ describe('store: value size limit (D1)', () => {
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'vault-size-'))
     process.env['CLAUDE_CONFIG_DIR'] = tmpDir
-    process.env['CLAUDE_LOCAL_VAULT_PASSPHRASE'] = 'test-passphrase-fixed-32chars-xxx'
+    process.env['CLAUDE_LOCAL_VAULT_PASSPHRASE'] =
+      'test-passphrase-fixed-32chars-xxx'
     keychainMock.set.mockImplementation(keychainUnavailable)
     keychainMock._addToIndex.mockImplementation(keychainUnavailable)
   })

@@ -135,7 +135,11 @@ async function getOrCreatePassphrase(): Promise<string> {
   const generated = randomBytes(32).toString('hex')
   try {
     // C5: 'wx' flag means exclusive create — EEXIST if another process wrote first
-    writeFileSync(passphraseFile, generated, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
+    writeFileSync(passphraseFile, generated, {
+      encoding: 'utf8',
+      mode: 0o600,
+      flag: 'wx',
+    })
   } catch (err: unknown) {
     const code = (err as NodeJS.ErrnoException).code
     if (code === 'EEXIST') {
@@ -190,7 +194,11 @@ type VaultFile = {
 
 // ── Crypto primitives ─────────────────────────────────────────────────────────
 
-function encrypt(plaintext: string, key: Buffer, entryKey: string): EncryptedRecord {
+function encrypt(
+  plaintext: string,
+  key: Buffer,
+  entryKey: string,
+): EncryptedRecord {
   // New IV per encryption — invariant: no IV reuse
   const iv = randomBytes(IV_BYTES)
   const cipher = createCipheriv(ALGORITHM, key, iv)
@@ -208,7 +216,11 @@ function encrypt(plaintext: string, key: Buffer, entryKey: string): EncryptedRec
   }
 }
 
-function decrypt(record: EncryptedRecord, key: Buffer, entryKey: string): string {
+function decrypt(
+  record: EncryptedRecord,
+  key: Buffer,
+  entryKey: string,
+): string {
   let iv: Buffer
   let tag: Buffer
   let data: Buffer
@@ -262,11 +274,7 @@ async function readVaultFile(): Promise<VaultFile> {
       'vault file is corrupt (invalid JSON) — restore from backup',
     )
   }
-  if (
-    typeof parsed !== 'object' ||
-    parsed === null ||
-    Array.isArray(parsed)
-  ) {
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     throw new LocalVaultDecryptionError(
       'vault file has unexpected format — restore from backup',
     )
@@ -281,20 +289,30 @@ async function writeVaultFile(data: VaultFile): Promise<void> {
   }
   const filePath = getVaultFilePath()
   // C1: atomic write — tmp file + rename (POSIX rename(2) is atomic)
-  const tmpPath = join(tmpdir(), `.local-vault-${randomBytes(8).toString('hex')}.tmp`)
+  const tmpPath = join(
+    tmpdir(),
+    `.local-vault-${randomBytes(8).toString('hex')}.tmp`,
+  )
   try {
     await writeFile(tmpPath, JSON.stringify(data, null, 2), 'utf8')
     renameSync(tmpPath, filePath)
   } catch (err) {
     // Clean up tmp on failure
-    try { rmSync(tmpPath, { force: true }) } catch { /* ignore cleanup error */ }
+    try {
+      rmSync(tmpPath, { force: true })
+    } catch {
+      /* ignore cleanup error */
+    }
     throw err
   }
 }
 
 /** Get or create the per-vault salt, storing it in the vault file. */
 async function getOrCreateSalt(vaultData: VaultFile): Promise<Buffer> {
-  if (typeof vaultData['_salt'] === 'string' && vaultData['_salt'].length === SALT_BYTES * 2) {
+  if (
+    typeof vaultData['_salt'] === 'string' &&
+    vaultData['_salt'].length === SALT_BYTES * 2
+  ) {
     return Buffer.from(vaultData['_salt'], 'hex')
   }
   // Generate new salt and persist it (the caller will write the vault file)
@@ -362,7 +380,8 @@ export async function getSecret(key: string): Promise<string | null> {
   // Fallback: encrypted file
   const vaultData = await readVaultFile()
   const record = vaultData[key]
-  if (!record || typeof record !== 'object' || Array.isArray(record)) return null
+  if (!record || typeof record !== 'object' || Array.isArray(record))
+    return null
 
   // Detect old format: no salt field → record was encrypted without scrypt KDF.
   // The new AAD binding also means old records will fail authentication.
