@@ -14,7 +14,15 @@
  * those PARTIAL.
  */
 
-type CmdSpec = { mod: string; name: string; sample?: string; type: string }
+type CmdSpec = {
+  mod: string
+  name: string
+  sample?: string
+  type: string
+  /** Set true when this command's isHidden depends on env var (e.g. workspace
+   * API key for /vault) — smoke test should pass even when isHidden is true. */
+  hiddenWithoutEnv?: boolean
+}
 
 const COMMANDS: CmdSpec[] = [
   { mod: '../src/commands/env/index.ts', name: 'env', type: 'local' },
@@ -26,9 +34,10 @@ const COMMANDS: CmdSpec[] = [
   { mod: '../src/commands/teleport/index.ts', name: 'teleport', sample: '', type: 'local-jsx' },
   { mod: '../src/commands/autofix-pr/index.ts', name: 'autofix-pr', sample: 'stop', type: 'local-jsx' },
   { mod: '../src/commands/onboarding/index.ts', name: 'onboarding', sample: 'status', type: 'local-jsx' },
-  { mod: '../src/commands/agents-platform/index.ts', name: 'agents-platform', sample: 'list', type: 'local-jsx' },
+  // These 3 are isHidden when ANTHROPIC_API_KEY isn't set (PR-1 dynamic gating).
+  { mod: '../src/commands/agents-platform/index.ts', name: 'agents-platform', sample: 'list', type: 'local-jsx', hiddenWithoutEnv: true },
+  { mod: '../src/commands/memory-stores/index.ts', name: 'memory-stores', sample: 'list', type: 'local-jsx', hiddenWithoutEnv: true },
   { mod: '../src/commands/schedule/index.ts', name: 'schedule', sample: 'list', type: 'local-jsx' },
-  { mod: '../src/commands/memory-stores/index.ts', name: 'memory-stores', sample: 'list', type: 'local-jsx' },
 ]
 
 async function smoke(spec: CmdSpec): Promise<{ name: string; ok: boolean; note: string }> {
@@ -39,7 +48,19 @@ async function smoke(spec: CmdSpec): Promise<{ name: string; ok: boolean; note: 
     if (cmd.name !== spec.name) {
       return { name: spec.name, ok: false, note: `name mismatch: ${cmd.name}` }
     }
-    if (cmd.isHidden) return { name: spec.name, ok: false, note: 'isHidden=true' }
+    if (cmd.isHidden) {
+      // Commands with env-var-gated visibility (e.g. ANTHROPIC_API_KEY) are
+      // expected to be hidden when the env var is unset. Treat that as pass
+      // with an informative note rather than fail.
+      if (spec.hiddenWithoutEnv) {
+        return {
+          name: spec.name,
+          ok: true,
+          note: 'isHidden=true (env-gated, set ANTHROPIC_API_KEY to enable)',
+        }
+      }
+      return { name: spec.name, ok: false, note: 'isHidden=true' }
+    }
     const enabled = cmd.isEnabled?.() ?? true
     if (!enabled) return { name: spec.name, ok: false, note: 'isEnabled()=false' }
     if (cmd.type !== spec.type) {
