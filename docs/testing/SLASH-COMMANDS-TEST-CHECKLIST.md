@@ -122,34 +122,16 @@ bun run dev
 
 ---
 
-## D 组 — 第三方 provider（PR-2 新增）
+## D 组 — _（已删除 2026-05-06）_
 
-**前置**：无（不需要立刻配 API key 也能 list）
+`/providers` 命令在 2026-05-06 移除。理由:与 fork 原生 `/login` 的 "Anthropic Compatible Setup" form 功能重叠（同样配 OpenAI-compat Base URL + API Key），保留单一入口避免双 UI 混淆。
 
-| # | 命令 | 输入 | 期望输出 | 通过 |
-|---|---|---|---|---|
-| D1 | `/providers list` | 无参 | 4 内置：cerebras / groq / qwen / deepseek + custom（如有） | ☐ |
-| D2 | `/providers` | 无参（默认 list） | 同 D1 | ☐ |
-| D3 | `/providers show` | 无参 | active provider 详情（默认 firstParty） | ☐ |
-| D4 | `/providers use cerebras` | 子命令 | 输出 shell export 块（**不**自动 mutate process.env），含 `OPENAI_BASE_URL` `OPENAI_MODEL` `CLAUDE_CODE_USE_OPENAI` | ☐ |
-| D5 | `/providers use groq` | 子命令 | 同 D4 但 groq 配置 | ☐ |
-| D6 | `/providers use deepseek` | 子命令 | 同 D4 + DeepSeek 三模式 reasoning_content 兼容标记 | ☐ |
-| D7 | `/providers use unknown-id` | 错误参数 | 报 unknown provider | ☐ |
-| D8 | `/providers add` | 交互式 | 提示 id/baseUrl/apiKeyEnv/defaultModel/compatRule，写 `~/.claude/providers.json` | ☐ |
+**第三方 provider 配置请用** `/login` 内的 form:选 provider 后填 Base URL + API Key + Haiku/Sonnet/Opus 类别按钮。
 
-**完整切换测试（手动）**：
-```bash
-# 1. 复制 /providers use cerebras 输出的 export 块
-# 2. 在 shell 跑 export
-# 3. 退出 dev REPL，重启
-# 4. 跑一次普通对话，验证模型回复来自 cerebras
-```
-
-**D 组失败诊断**：
-- `/providers list` 空 → loader.ts 没 fallback 4 内置
-- `use` mutate process.env → switcher 没遵守 pure functional
+`src/services/providerRegistry/*` utility 模块 **保留**（4 内置 cerebras/groq/qwen/deepseek 元数据 + DeepSeek 三模式 compatMatrix），可被未来 fork form 的 "Quick Select" enhancement 复用。
 
 ---
+
 
 ## E 组 — 本地兜底（PR-3 新增，订阅用户无 key 也能用）
 
