@@ -11,7 +11,6 @@
  */
 
 import { getClaudeAIOAuthTokens } from '../../utils/auth.js'
-import { loadProviders } from '../../services/providerRegistry/loader.js'
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -37,36 +36,18 @@ export interface AuthStatus {
      */
     keyPreview: string | null
   }
-  thirdParty: Array<{
-    /** Provider id from the registry (e.g. 'cerebras', 'groq') */
-    id: string
-    /** Human-readable display name */
-    name: string
-    /** Name of the env var that holds the API key */
-    apiKeyEnv: string
-    /** true when the env var is set to a non-empty value */
-    apiKeySet: boolean
-    /**
-     * true when CLAUDE_CODE_USE_OPENAI=1 AND OPENAI_BASE_URL matches this
-     * provider's baseUrl — meaning it is the currently active OpenAI-compat route.
-     */
-    isActive: boolean
-  }>
 }
+
+// thirdParty was removed 2026-05-06: fork's existing /login → "Anthropic
+// Compatible Setup" form is the single source of truth for OpenAI-compat
+// configuration. The summary intentionally only shows Anthropic-side planes
+// (subscription / workspace key) which the fork form does not surface.
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
 const WORKSPACE_KEY_PREFIX = 'sk-ant-api03-'
-
-/** Map display name overrides for well-known provider ids */
-const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
-  cerebras: 'Cerebras',
-  groq: 'Groq',
-  qwen: 'Qwen',
-  deepseek: 'DeepSeek',
-}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -91,11 +72,6 @@ function maskApiKey(key: string): string {
   return `${first4}...${last2} (${len} chars)`
 }
 
-/** Normalise provider id to a human-readable name */
-function displayName(id: string): string {
-  return PROVIDER_DISPLAY_NAMES[id] ?? id.charAt(0).toUpperCase() + id.slice(1)
-}
-
 // ---------------------------------------------------------------------------
 // Main export
 // ---------------------------------------------------------------------------
@@ -104,8 +80,10 @@ function displayName(id: string): string {
  * Returns a snapshot of the current auth state by reading:
  *   - process.env.ANTHROPIC_API_KEY (workspace key)
  *   - getClaudeAIOAuthTokens() from the local credential file (subscription OAuth)
- *   - loadProviders() for the third-party provider list
- *   - process.env.CLAUDE_CODE_USE_OPENAI + OPENAI_BASE_URL for active provider
+ *
+ * Third-party provider config (Cerebras / Groq / Qwen / DeepSeek) is owned by
+ * fork's existing /login → "Anthropic Compatible Setup" form; the parallel
+ * surface here was removed 2026-05-06.
  *
  * This function never throws and never makes network calls.
  */
@@ -139,24 +117,6 @@ export function getAuthStatus(): AuthStatus {
   const prefixValid = rawKey.startsWith(WORKSPACE_KEY_PREFIX)
   const keyPreview = keySet ? maskApiKey(rawKey) : null
 
-  // ---- 3. Third-party providers ----
-  const providers = loadProviders()
-  const useOpenAI = process.env.CLAUDE_CODE_USE_OPENAI === '1'
-  const openAIBaseUrl = (process.env.OPENAI_BASE_URL ?? '').trim()
-
-  const thirdParty: AuthStatus['thirdParty'] = providers.map(p => {
-    const apiKeySet = Boolean(process.env[p.apiKeyEnv]?.trim())
-    const isActive =
-      useOpenAI && openAIBaseUrl !== '' && p.baseUrl === openAIBaseUrl
-    return {
-      id: p.id,
-      name: displayName(p.id),
-      apiKeyEnv: p.apiKeyEnv,
-      apiKeySet,
-      isActive,
-    }
-  })
-
   return {
     subscription: {
       active: subscriptionActive,
@@ -168,6 +128,5 @@ export function getAuthStatus(): AuthStatus {
       prefixValid,
       keyPreview,
     },
-    thirdParty,
   }
 }

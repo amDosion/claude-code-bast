@@ -91,25 +91,16 @@ function WorkspaceKeyInstructions({
   return null;
 }
 
-function ThirdPartyRow({ provider }: { provider: AuthStatus['thirdParty'][number] }): React.ReactNode {
-  const icon = provider.apiKeySet ? '✓' : '☐';
-  const keyLabel = provider.apiKeySet ? `(${provider.apiKeyEnv} set)` : `(${provider.apiKeyEnv} not set)`;
-  const activeLabel = provider.isActive ? '  (active)' : '';
-
-  return (
-    <Box>
-      <Text color={provider.apiKeySet ? 'success' : undefined}>
-        {icon} {provider.name.padEnd(10)}
-      </Text>
-      <Text dimColor={!provider.apiKeySet}>{keyLabel}</Text>
-      {provider.isActive && <Text color="ansi:cyan">{activeLabel}</Text>}
-    </Box>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Root component
 // ---------------------------------------------------------------------------
+//
+// Third-party providers were previously listed here with their own status rows
+// (Cerebras / Groq / Qwen / DeepSeek). Removed 2026-05-06 because the fork's
+// existing `<Login>` "Anthropic Compatible Setup" form already configures the
+// same Base URL + API key, and showing two parallel UIs for the same goal
+// confused users. Subscription + Workspace key remain — those are distinct
+// Anthropic-side auth planes the fork form doesn't surface.
 
 export interface AuthPlaneSummaryProps {
   status: AuthStatus;
@@ -127,17 +118,6 @@ export function AuthPlaneSummary({ status }: AuthPlaneSummaryProps): React.React
         <SubscriptionRow subscription={status.subscription} />
         <WorkspaceKeyRow workspaceKey={status.workspaceKey} />
         <WorkspaceKeyInstructions subscription={status.subscription} workspaceKey={status.workspaceKey} />
-      </Box>
-
-      {/* Section: Third-party providers */}
-      <Box marginTop={1} marginBottom={0}>
-        <Text bold>Third-party providers:</Text>
-      </Box>
-
-      <Box marginLeft={2} flexDirection="column">
-        {status.thirdParty.map(p => (
-          <ThirdPartyRow key={p.id} provider={p} />
-        ))}
       </Box>
     </Box>
   );

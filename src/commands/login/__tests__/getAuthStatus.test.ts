@@ -163,51 +163,7 @@ describe('getAuthStatus', () => {
     expect(preview).not.toContain('ABCDEFGHIJKLMNOPQRSTUVWXYZ01234567')
   })
 
-  test('thirdParty cerebras shows apiKeySet=true when CEREBRAS_API_KEY is set', async () => {
-    process.env.CEREBRAS_API_KEY = 'cerebras-test-key-abc'
-    mock.module('src/utils/auth.ts', () => ({
-      getClaudeAIOAuthTokens: () => null,
-      hasAnthropicApiKeyAuth: () => false,
-      isAnthropicAuthEnabled: () => false,
-      getSubscriptionType: () => null,
-    }))
-    const { getAuthStatus } = await import('../getAuthStatus.js')
-    const status = getAuthStatus()
-    const cerebras = status.thirdParty.find(p => p.id === 'cerebras')
-    expect(cerebras).toBeDefined()
-    expect(cerebras?.apiKeySet).toBe(true)
-  })
-
-  test('thirdParty groq shows apiKeySet=false when GROQ_API_KEY not set', async () => {
-    mock.module('src/utils/auth.ts', () => ({
-      getClaudeAIOAuthTokens: () => null,
-      hasAnthropicApiKeyAuth: () => false,
-      isAnthropicAuthEnabled: () => false,
-      getSubscriptionType: () => null,
-    }))
-    const { getAuthStatus } = await import('../getAuthStatus.js')
-    const status = getAuthStatus()
-    const groq = status.thirdParty.find(p => p.id === 'groq')
-    expect(groq).toBeDefined()
-    expect(groq?.apiKeySet).toBe(false)
-  })
-
-  test('thirdParty isActive=true when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL matches provider baseUrl', async () => {
-    process.env.CEREBRAS_API_KEY = 'cerebras-key'
-    process.env.CLAUDE_CODE_USE_OPENAI = '1'
-    process.env.OPENAI_BASE_URL = 'https://api.cerebras.ai/v1'
-    mock.module('src/utils/auth.ts', () => ({
-      getClaudeAIOAuthTokens: () => null,
-      hasAnthropicApiKeyAuth: () => false,
-      isAnthropicAuthEnabled: () => false,
-      getSubscriptionType: () => null,
-    }))
-    const { getAuthStatus } = await import('../getAuthStatus.js')
-    const status = getAuthStatus()
-    const cerebras = status.thirdParty.find(p => p.id === 'cerebras')
-    expect(cerebras?.isActive).toBe(true)
-    // Other providers not active
-    const groq = status.thirdParty.find(p => p.id === 'groq')
-    expect(groq?.isActive).toBe(false)
-  })
+  // Third-party provider tests removed 2026-05-06 — that surface was deleted
+  // from AuthStatus to defer to fork's existing /login form for OpenAI-compat
+  // configuration. See AuthPlaneSummary.tsx for the rationale.
 })

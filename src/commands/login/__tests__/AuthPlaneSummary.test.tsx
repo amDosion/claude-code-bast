@@ -35,12 +35,6 @@ function makeStatus(overrides: Partial<AuthStatus> = {}): AuthStatus {
       prefixValid: false,
       keyPreview: null,
     },
-    thirdParty: [
-      { id: 'cerebras', name: 'Cerebras', apiKeyEnv: 'CEREBRAS_API_KEY', apiKeySet: false, isActive: false },
-      { id: 'groq', name: 'Groq', apiKeyEnv: 'GROQ_API_KEY', apiKeySet: false, isActive: false },
-      { id: 'qwen', name: 'Qwen', apiKeyEnv: 'DASHSCOPE_API_KEY', apiKeySet: false, isActive: false },
-      { id: 'deepseek', name: 'DeepSeek', apiKeyEnv: 'DEEPSEEK_API_KEY', apiKeySet: false, isActive: false },
-    ],
     ...overrides,
   };
 }
@@ -105,35 +99,7 @@ describe('AuthPlaneSummary', () => {
     expect(out).toContain('console.anthropic.com');
   });
 
-  test('renders third-party providers with ✓ for set and ☐ for unset', async () => {
-    const { AuthPlaneSummary } = await import('../AuthPlaneSummary.js');
-    const status = makeStatus({
-      thirdParty: [
-        { id: 'cerebras', name: 'Cerebras', apiKeyEnv: 'CEREBRAS_API_KEY', apiKeySet: true, isActive: false },
-        { id: 'groq', name: 'Groq', apiKeyEnv: 'GROQ_API_KEY', apiKeySet: false, isActive: false },
-        { id: 'qwen', name: 'Qwen', apiKeyEnv: 'DASHSCOPE_API_KEY', apiKeySet: false, isActive: false },
-        { id: 'deepseek', name: 'DeepSeek', apiKeyEnv: 'DEEPSEEK_API_KEY', apiKeySet: false, isActive: false },
-      ],
-    });
-    const out = await renderToString(<AuthPlaneSummary status={status} />);
-    expect(out).toContain('Cerebras');
-    expect(out).toContain('✓');
-    expect(out).toContain('Groq');
-    expect(out).toContain('☐');
-  });
-
-  test('marks active provider with (active) label', async () => {
-    const { AuthPlaneSummary } = await import('../AuthPlaneSummary.js');
-    const status = makeStatus({
-      thirdParty: [
-        { id: 'cerebras', name: 'Cerebras', apiKeyEnv: 'CEREBRAS_API_KEY', apiKeySet: true, isActive: true },
-        { id: 'groq', name: 'Groq', apiKeyEnv: 'GROQ_API_KEY', apiKeySet: false, isActive: false },
-        { id: 'qwen', name: 'Qwen', apiKeyEnv: 'DASHSCOPE_API_KEY', apiKeySet: false, isActive: false },
-        { id: 'deepseek', name: 'DeepSeek', apiKeyEnv: 'DEEPSEEK_API_KEY', apiKeySet: false, isActive: false },
-      ],
-    });
-    const out = await renderToString(<AuthPlaneSummary status={status} />);
-    expect(out.toLowerCase()).toContain('active');
-    expect(out).toContain('Cerebras');
-  });
+  // Third-party provider rendering tests removed 2026-05-06 — that section
+  // was deleted from AuthPlaneSummary to defer to fork's existing /login form
+  // for OpenAI-compat configuration. See AuthPlaneSummary.tsx for the rationale.
 });
