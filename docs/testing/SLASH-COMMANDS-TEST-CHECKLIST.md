@@ -36,9 +36,9 @@ bun run dev
 |---|---|---|---|---|
 | A1 | `/version` | 直接跑 | 显示版本号（如 `1.10.10`） | ☐ |
 | A2 | `/env` | 直接跑 | runtime 信息 + env vars 白名单（CLAUDE_/FEATURE_/ANTHROPIC_/BUN_/NODE_/...）+ secrets masked | ☐ |
-| A3 | `/ctx_viz` | 直接跑 | ANSI 50 格 colored grid（绿/黄/红） + cache hit/miss bar + token usage breakdown | ☐ |
-| A4 | `/context` | 同 A3（alias） | 同 A3 输出 | ☐ |
-| A5 | `/ctx_viz --max-tokens 200000` | flag | grid 按 200K 重算；> 10M 报错 | ☐ |
+| A3 | `/context` | 直接跑 | fork 原生命令：colored grid（走 `analyzeContextUsage()` 真实 API view，含 compact boundary + projectView 转换）+ token 数与 API 看到的一致 | ☐ |
+| A4 | `/context` 在压缩边界附近 | 直接跑 | 显示 compact boundary 后的 messages，不重复计 token | ☐ |
+| A5 | _（删 ctx_viz；`/context` 是唯一 context 可视化命令）_ | — | — | — |
 | A6 | `/debug-tool-call` | 默认 N=5 | 列最近 5 个 tool_use+tool_result 配对 | ☐ |
 | A7 | `/debug-tool-call 10` | 数字参数 | 列最近 10 个 | ☐ |
 | A8 | `/perf-issue` | 直接跑 | 写 `~/.claude/perf-reports/perf-<stamp>.md`（mem+cpu+token+per-tool） | ☐ |
