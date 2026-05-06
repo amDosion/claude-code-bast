@@ -9,7 +9,8 @@ mock.module('src/utils/log.ts', logMock)
 mock.module('bun:bundle', () => ({ feature: () => false }))
 
 import React from 'react'
-import type { LocalJSXCommandCall } from '../../../types/command.js'
+import type { LocalJSXCommandCall, LocalJSXCommandOnDone } from '../../../types/command.js'
+import type { LaunchCommandOptions } from '../launchCommand.js'
 
 let launchCommand: typeof import('../launchCommand.js').launchCommand
 
@@ -29,20 +30,21 @@ type TestViewProps = { greeting: string }
 const TestView: React.FC<TestViewProps> = ({ greeting }) =>
   React.createElement('span', null, greeting)
 
-const makeOpts = (
-  overrides: Partial<Parameters<typeof launchCommand>[0]> = {},
-): Parameters<typeof launchCommand>[0] => ({
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyOpts = LaunchCommandOptions<any, any>
+
+const makeOpts = (overrides: Partial<AnyOpts> = {}): AnyOpts => ({
   commandName: 'test-cmd',
   parseArgs: (raw: string): TestParsed | { action: 'invalid'; reason: string } => {
     if (raw.trim() === '') return { action: 'invalid', reason: 'empty args' }
     return { action: 'greet', name: raw.trim() }
   },
-  dispatch: async (parsed: TestParsed, onDone) => {
+  dispatch: async (parsed: TestParsed, onDone: LocalJSXCommandOnDone) => {
     if (parsed.action !== 'greet') return null
     onDone(`Hello ${parsed.name}`)
     return { greeting: `Hello, ${parsed.name}!` }
   },
-  View: TestView,
+  View: TestView as React.FC<unknown>,
   errorView: (msg: string) => React.createElement('span', null, `Error: ${msg}`),
   ...overrides,
 })
@@ -66,7 +68,7 @@ describe('launchCommand factory', () => {
     const result = await call(onDone, {} as never, 'Alice')
     expect(result).not.toBeNull()
     expect(onDone).toHaveBeenCalledTimes(1)
-    const [msg] = onDone.mock.calls[0] as [string]
+    const [msg] = onDone.mock.calls[0] as unknown as [string]
     expect(msg).toContain('Alice')
   })
 
@@ -76,7 +78,7 @@ describe('launchCommand factory', () => {
     const onDone = mock(() => {})
     const result = await call(onDone, {} as never, '')
     expect(onDone).toHaveBeenCalledTimes(1)
-    const [msg] = onDone.mock.calls[0] as [string]
+    const [msg] = onDone.mock.calls[0] as unknown as [string]
     expect(msg).toContain('empty args')
     // errorView should return something (not null from dispatch)
     expect(result).not.toBeUndefined()
@@ -94,7 +96,7 @@ describe('launchCommand factory', () => {
     const onDone = mock(() => {})
     const result = await call(onDone, {} as never, 'Bob')
     expect(onDone).toHaveBeenCalledTimes(1)
-    const [msg] = onDone.mock.calls[0] as [string]
+    const [msg] = onDone.mock.calls[0] as unknown as [string]
     expect(msg).toContain('dispatch failed')
     expect(result).not.toBeUndefined()
   })
@@ -154,7 +156,7 @@ describe('launchCommand factory', () => {
     const onDone = mock(() => {})
     await call(onDone, {} as never, 'Eve')
     expect(onDone).toHaveBeenCalledTimes(1)
-    const [msg] = onDone.mock.calls[0] as [string]
+    const [msg] = onDone.mock.calls[0] as unknown as [string]
     expect(msg).toContain('my-special-cmd')
     expect(msg).toContain('network timeout')
   })
