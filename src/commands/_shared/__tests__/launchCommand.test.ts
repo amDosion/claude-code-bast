@@ -9,7 +9,10 @@ mock.module('src/utils/log.ts', logMock)
 mock.module('bun:bundle', () => ({ feature: () => false }))
 
 import React from 'react'
-import type { LocalJSXCommandCall, LocalJSXCommandOnDone } from '../../../types/command.js'
+import type {
+  LocalJSXCommandCall,
+  LocalJSXCommandOnDone,
+} from '../../../types/command.js'
 import type { LaunchCommandOptions } from '../launchCommand.js'
 
 let launchCommand: typeof import('../launchCommand.js').launchCommand
@@ -35,7 +38,9 @@ type AnyOpts = LaunchCommandOptions<any, any>
 
 const makeOpts = (overrides: Partial<AnyOpts> = {}): AnyOpts => ({
   commandName: 'test-cmd',
-  parseArgs: (raw: string): TestParsed | { action: 'invalid'; reason: string } => {
+  parseArgs: (
+    raw: string,
+  ): TestParsed | { action: 'invalid'; reason: string } => {
     if (raw.trim() === '') return { action: 'invalid', reason: 'empty args' }
     return { action: 'greet', name: raw.trim() }
   },
@@ -45,7 +50,8 @@ const makeOpts = (overrides: Partial<AnyOpts> = {}): AnyOpts => ({
     return { greeting: `Hello, ${parsed.name}!` }
   },
   View: TestView as React.FC<unknown>,
-  errorView: (msg: string) => React.createElement('span', null, `Error: ${msg}`),
+  errorView: (msg: string) =>
+    React.createElement('span', null, `Error: ${msg}`),
   ...overrides,
 })
 
@@ -175,7 +181,11 @@ describe('launchCommand factory', () => {
         },
       }),
     )
-    await call(mock(() => {}), {} as never, 'Frank')
+    await call(
+      mock(() => {}),
+      {} as never,
+      'Frank',
+    )
     expect(capturedMsgs).toHaveLength(1)
     expect(capturedMsgs[0]).toBe('specific-error-text')
   })

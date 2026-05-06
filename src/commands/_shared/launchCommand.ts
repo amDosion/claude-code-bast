@@ -19,7 +19,10 @@
  */
 
 import React from 'react'
-import type { LocalJSXCommandCall, LocalJSXCommandOnDone } from '../../types/command.js'
+import type {
+  LocalJSXCommandCall,
+  LocalJSXCommandOnDone,
+} from '../../types/command.js'
 import type { ToolUseContext } from '../../Tool.js'
 
 /** Shape returned by parseArgs when args are invalid. */
@@ -96,7 +99,10 @@ export function launchCommand<TParsed, TViewProps>(
     try {
       const viewProps = await opts.dispatch(parsed as TParsed, onDone, context)
       if (viewProps === null) return null
-      return React.createElement(opts.View as React.ComponentType<object>, viewProps as object)
+      return React.createElement(
+        opts.View as React.ComponentType<object>,
+        viewProps as object,
+      )
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
       opts.onDispatchError?.(err)

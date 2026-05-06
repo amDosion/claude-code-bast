@@ -18,7 +18,6 @@ type CmdSpec = { mod: string; name: string; sample?: string; type: string }
 
 const COMMANDS: CmdSpec[] = [
   { mod: '../src/commands/env/index.ts', name: 'env', type: 'local' },
-  { mod: '../src/commands/ctx_viz/index.ts', name: 'ctx_viz', type: 'local' },
   { mod: '../src/commands/debug-tool-call/index.ts', name: 'debug-tool-call', type: 'local' },
   { mod: '../src/commands/perf-issue/index.ts', name: 'perf-issue', type: 'local' },
   { mod: '../src/commands/break-cache/index.ts', name: 'break-cache', type: 'local' },

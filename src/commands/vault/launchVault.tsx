@@ -70,10 +70,7 @@ async function dispatchVault(
   return { mode: 'list', vaults };
 }
 
-export const callVault: LocalJSXCommandCall = launchCommand<
-  ReturnType<typeof parseVaultArgs>,
-  VaultViewProps
->({
+export const callVault: LocalJSXCommandCall = launchCommand<ReturnType<typeof parseVaultArgs>, VaultViewProps>({
   commandName: 'vault',
   parseArgs: (raw: string) => {
     const result = parseVaultArgs(raw);
