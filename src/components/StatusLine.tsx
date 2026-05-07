@@ -44,6 +44,7 @@ import { getCurrentWorktreeSession } from '../utils/worktree.js';
 import { isVimModeEnabled } from './PromptInput/utils.js';
 import { computeHitRate, tokenSignature } from '../utils/cacheStats.js';
 import { onResponse as cacheOnResponse, getCacheStatsState, initCacheStatsState } from '../utils/cacheStatsState.js';
+import { BuiltinStatusLine } from './BuiltinStatusLine.js';
 
 // ---------------------------------------------------------------------------
 // CachePill — cache hit-rate + 1-hour TTL countdown pill
@@ -456,12 +457,57 @@ function StatusLineInner({ messagesRef, lastAssistantMessageId, vimMode }: Props
   // Get padding from settings or default to 0
   const paddingX = settings?.statusLine?.padding ?? 0;
 
-  // StatusLine must have stable height in fullscreen — the footer is
-  // flexShrink:0 so a 0→1 row change when the command finishes steals
-  // a row from ScrollBox and shifts content. Reserve the row while loading
-  // (same trick as PromptInputFooterLeftSide).
+  // ---- Top row data: feed BuiltinStatusLine (model + ctx + 5h + 7d + cost) ---
+  const builtinRuntimeModel = getRuntimeMainLoopModel({
+    permissionMode,
+    mainLoopModel,
+    exceeds200kTokens: previousStateRef.current.exceeds200kTokens,
+  });
+  const builtinContextWindowSize = getContextWindowForModel(builtinRuntimeModel, getSdkBetas());
+  const builtinCurrentUsage = getCurrentUsage(messagesRef.current);
+  const builtinUsedTokens = builtinCurrentUsage
+    ? builtinCurrentUsage.input_tokens
+      + builtinCurrentUsage.cache_creation_input_tokens
+      + builtinCurrentUsage.cache_read_input_tokens
+    : 0;
+  const builtinContextPct = builtinCurrentUsage
+    ? Math.round((calculateContextPercentages(builtinCurrentUsage, builtinContextWindowSize).used ?? 0))
+    : 0;
+  const builtinRawUtil = getRawUtilization();
+  const builtinRateLimits = {
+    ...(builtinRawUtil.five_hour && {
+      five_hour: {
+        utilization: builtinRawUtil.five_hour.utilization,
+        resets_at: builtinRawUtil.five_hour.resets_at,
+      },
+    }),
+    ...(builtinRawUtil.seven_day && {
+      seven_day: {
+        utilization: builtinRawUtil.seven_day.utilization,
+        resets_at: builtinRawUtil.seven_day.resets_at,
+      },
+    }),
+  };
+
+  // StatusLine has stable height — flexShrink:0 footer means row count changes
+  // would steal from ScrollBox. We always render 2 rows (top: BuiltinStatusLine
+  // + Cache pill, bottom: shell command stdout reservation) to keep height
+  // stable across loading/configured/empty states.
   return (
-    <Box paddingX={paddingX} gap={2}>
+    <Box flexDirection="column" paddingX={paddingX}>
+      {/* Top: built-in fork status (model | ctx | 5h | 7d | cost) + Cache pill */}
+      <Box gap={2}>
+        <BuiltinStatusLine
+          modelName={renderModelName(builtinRuntimeModel)}
+          contextUsedPct={builtinContextPct}
+          usedTokens={builtinUsedTokens}
+          contextWindowSize={builtinContextWindowSize}
+          totalCostUsd={getTotalCost()}
+          rateLimits={builtinRateLimits}
+        />
+        <CachePill messages={messagesRef.current} />
+      </Box>
+      {/* Bottom: user-configured /statusline shell stdout (reserves row in fullscreen) */}
       {statusLineText ? (
         <Text dimColor wrap="truncate">
           <Ansi>{statusLineText}</Ansi>
@@ -469,7 +515,6 @@ function StatusLineInner({ messagesRef, lastAssistantMessageId, vimMode }: Props
       ) : isFullscreenEnvEnabled() ? (
         <Text> </Text>
       ) : null}
-      <CachePill messages={messagesRef.current} />
     </Box>
   );
 }
