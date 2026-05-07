@@ -160,7 +160,14 @@ export function statusLineShouldDisplay(settings: ReadonlySettings): boolean {
   // Assistant mode: statusline fields (model, permission mode, cwd) reflect the
   // REPL/daemon process, not what the agent child is actually running. Hide it.
   if (feature('KAIROS') && getKairosActive()) return false;
-  return settings?.statusLine !== undefined;
+  // Always render: the built-in BuiltinStatusLine + CachePill are React
+  // components owned by the fork — they don't need any settings.statusLine
+  // entry to function. The optional shell-stdout row inside StatusLine still
+  // gates itself on a non-empty statusLineText, so users without a configured
+  // command get just the top row. Reference: settings reads still happen
+  // inside StatusLine for the (optional) command path.
+  void settings;
+  return true;
 }
 
 function buildStatusLineCommandInput(
@@ -334,6 +341,13 @@ function StatusLineInner({ messagesRef, lastAssistantMessageId, vimMode }: Props
 
     const logResult = logNextResultRef.current;
     logNextResultRef.current = false;
+
+    // Skip the shell command path entirely when no command is configured.
+    // The top row (BuiltinStatusLine + CachePill) renders unconditionally, so
+    // there's nothing to update here when settings.statusLine is missing.
+    if (!settingsRef.current?.statusLine?.command) {
+      return;
+    }
 
     try {
       let exceeds200kTokens = previousStateRef.current.exceeds200kTokens;
