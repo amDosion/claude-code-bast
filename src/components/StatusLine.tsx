@@ -466,12 +466,12 @@ function StatusLineInner({ messagesRef, lastAssistantMessageId, vimMode }: Props
   const builtinContextWindowSize = getContextWindowForModel(builtinRuntimeModel, getSdkBetas());
   const builtinCurrentUsage = getCurrentUsage(messagesRef.current);
   const builtinUsedTokens = builtinCurrentUsage
-    ? builtinCurrentUsage.input_tokens
-      + builtinCurrentUsage.cache_creation_input_tokens
-      + builtinCurrentUsage.cache_read_input_tokens
+    ? builtinCurrentUsage.input_tokens +
+      builtinCurrentUsage.cache_creation_input_tokens +
+      builtinCurrentUsage.cache_read_input_tokens
     : 0;
   const builtinContextPct = builtinCurrentUsage
-    ? Math.round((calculateContextPercentages(builtinCurrentUsage, builtinContextWindowSize).used ?? 0))
+    ? Math.round(calculateContextPercentages(builtinCurrentUsage, builtinContextWindowSize).used ?? 0)
     : 0;
   const builtinRawUtil = getRawUtilization();
   const builtinRateLimits = {
