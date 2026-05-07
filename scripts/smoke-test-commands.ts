@@ -30,13 +30,21 @@ type CmdSpec = {
   /** Set true when this command's isHidden depends on env var (e.g. workspace
    * API key for /vault) — smoke test should pass even when isHidden is true. */
   hiddenWithoutEnv?: boolean
+  /** Override which export to import. Default: `default ?? mod[name]`.
+   * Use this for double-registered commands (e.g. /context, /break-cache) that
+   * expose separate interactive + non-interactive entries; the non-interactive
+   * one is the right target for a Node-only smoke run. */
+  exportName?: string
 }
 
 const COMMANDS: CmdSpec[] = [
   { mod: '../src/commands/env/index.ts', name: 'env', type: 'local' },
   { mod: '../src/commands/debug-tool-call/index.ts', name: 'debug-tool-call', type: 'local' },
   { mod: '../src/commands/perf-issue/index.ts', name: 'perf-issue', type: 'local' },
-  { mod: '../src/commands/break-cache/index.ts', name: 'break-cache', type: 'local' },
+  // break-cache is double-registered: default export is the interactive
+  // (local-jsx) variant which is disabled outside the REPL. Test the
+  // non-interactive named export here instead.
+  { mod: '../src/commands/break-cache/index.ts', name: 'break-cache', type: 'local', exportName: 'breakCacheNonInteractive' },
   { mod: '../src/commands/share/index.ts', name: 'share', type: 'local' },
   { mod: '../src/commands/issue/index.ts', name: 'issue', type: 'local' },
   { mod: '../src/commands/teleport/index.ts', name: 'teleport', sample: '', type: 'local-jsx' },
@@ -51,7 +59,9 @@ const COMMANDS: CmdSpec[] = [
 async function smoke(spec: CmdSpec): Promise<{ name: string; ok: boolean; note: string }> {
   try {
     const mod = await import(spec.mod)
-    const cmd = mod.default ?? mod[spec.name]
+    const cmd = spec.exportName
+      ? mod[spec.exportName]
+      : (mod.default ?? mod[spec.name])
     if (!cmd) return { name: spec.name, ok: false, note: 'no default export' }
     if (cmd.name !== spec.name) {
       return { name: spec.name, ok: false, note: `name mismatch: ${cmd.name}` }
