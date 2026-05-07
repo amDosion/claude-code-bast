@@ -9,10 +9,18 @@
  *
  * Run with: bun --feature AUTOFIX_PR scripts/smoke-test-commands.ts
  *
- * NOTE: This bypasses the REPL — local-jsx commands that need React/Ink
- * context will fail with informative messages. That's expected and we mark
- * those PARTIAL.
+ * NOTE: enableConfigs() must be called BEFORE any command index.ts is
+ * imported. Several commands evaluate `getGlobalConfig().workspaceApiKey`
+ * at module-load time (PR-5 dual-source isHidden), and getGlobalConfig
+ * throws "Config accessed before allowed" until enableConfigs runs. The
+ * real dev/build entry calls this from main.tsx; bypassing main means we
+ * have to invoke it ourselves.
  */
+// NOTE: This bypasses the REPL — local-jsx commands that need React/Ink
+// context will fail with informative messages. That's expected and we mark
+// those PARTIAL.
+import { enableConfigs } from '../src/utils/config.ts'
+enableConfigs()
 
 type CmdSpec = {
   mod: string
