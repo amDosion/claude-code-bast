@@ -13,9 +13,7 @@ const vaultCommand: Command = {
   // Use a getter so getGlobalConfig() runs lazily (after enableConfigs())
   // instead of at module-load time, which races bootstrap and throws.
   get isHidden(): boolean {
-    return (
-      !process.env['ANTHROPIC_API_KEY'] && !getGlobalConfig().workspaceApiKey
-    );
+    return !process.env['ANTHROPIC_API_KEY'] && !getGlobalConfig().workspaceApiKey;
   },
   isEnabled: () => true,
   bridgeSafe: false,
