@@ -1,8 +1,6 @@
 import type { Command, LocalCommandResult } from '../types/command.js';
-import {
-  getInitialSettings,
-  updateSettingsForSource,
-} from '../utils/settings/settings.js';
+import { notifyChange } from '../utils/settings/changeDetector.js';
+import { getInitialSettings, updateSettingsForSource } from '../utils/settings/settings.js';
 
 /**
  * /statusline — toggle the fork's built-in status line (BuiltinStatusLine +
@@ -61,17 +59,25 @@ const statusline: Command = {
       const next = parseDesired(args, current);
 
       if (next === current) {
-        const lines = [
-          `Status line is already **${next ? 'on' : 'off'}**.`,
-          '',
-          ...describeBottomRow(before),
-        ];
+        const lines = [`Status line is already **${next ? 'on' : 'off'}**.`, '', ...describeBottomRow(before)];
         return { type: 'text', value: lines.join('\n') };
       }
 
       const { error } = updateSettingsForSource('userSettings', {
         statusLineEnabled: next,
       });
+
+      // updateSettingsForSource marks the write as internal so the chokidar
+      // watcher ignores it (avoids self-triggered loops). That suppression
+      // also blocks AppState.settings from re-syncing, so the React tree
+      // never observes the new flag and statusLineShouldDisplay() keeps
+      // returning the old value. Fire the programmatic notifier ourselves so
+      // useSettingsChange runs and applySettingsChange pushes the fresh
+      // settings into AppState.
+      if (!error) {
+        notifyChange('userSettings');
+      }
+
       if (error) {
         return {
           type: 'text',
