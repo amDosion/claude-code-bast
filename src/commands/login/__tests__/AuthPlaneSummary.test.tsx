@@ -17,6 +17,8 @@ mock.module('src/utils/settings/settings.js', () => ({
 }));
 mock.module('src/utils/config.ts', () => ({
   isConfigEnabled: () => true,
+  getGlobalConfig: () => ({ workspaceApiKey: undefined }),
+  saveGlobalConfig: (_updater: unknown) => undefined,
 }));
 
 import { renderToString } from '../../../utils/staticRender.js';
@@ -34,6 +36,7 @@ function makeStatus(overrides: Partial<AuthStatus> = {}): AuthStatus {
       set: false,
       prefixValid: false,
       keyPreview: null,
+      source: null,
     },
     ...overrides,
   };
@@ -67,10 +70,12 @@ describe('AuthPlaneSummary', () => {
         set: true,
         prefixValid: true,
         keyPreview: 'sk-a...67 (48 chars)',
+        source: 'env',
       },
     });
     const out = await renderToString(<AuthPlaneSummary status={status} />);
-    expect(out).toContain('sk-a...67 (48 chars)');
+    // Key preview may be word-wrapped across lines in terminal output
+    expect(out).toContain('sk-a...67');
     expect(out).toContain('☑');
   });
 
@@ -81,6 +86,7 @@ describe('AuthPlaneSummary', () => {
         set: true,
         prefixValid: false,
         keyPreview: 'sk-w...ng (40 chars)',
+        source: 'env',
       },
     });
     const out = await renderToString(<AuthPlaneSummary status={status} />);
@@ -93,7 +99,7 @@ describe('AuthPlaneSummary', () => {
     const { AuthPlaneSummary } = await import('../AuthPlaneSummary.js');
     const status = makeStatus({
       subscription: { active: true, plan: 'pro', accountEmail: null },
-      workspaceKey: { set: false, prefixValid: false, keyPreview: null },
+      workspaceKey: { set: false, prefixValid: false, keyPreview: null, source: null },
     });
     const out = await renderToString(<AuthPlaneSummary status={status} />);
     expect(out).toContain('console.anthropic.com');

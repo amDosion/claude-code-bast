@@ -17,6 +17,10 @@ mock.module('src/utils/settings/settings.js', () => ({
 }))
 mock.module('src/utils/config.ts', () => ({
   isConfigEnabled: () => true,
+  getGlobalConfig: () => ({
+    workspaceApiKey: undefined,
+  }),
+  saveGlobalConfig: (_updater: unknown) => undefined,
 }))
 
 // We mock auth.ts getClaudeAIOAuthTokens to return controlled values
@@ -99,6 +103,7 @@ describe('getAuthStatus', () => {
     expect(status.workspaceKey.set).toBe(false)
     expect(status.workspaceKey.prefixValid).toBe(false)
     expect(status.workspaceKey.keyPreview).toBeNull()
+    expect(status.workspaceKey.source).toBeNull()
   })
 
   test('workspaceKey.set=true, prefixValid=true with valid sk-ant-api03- prefix', async () => {
@@ -161,6 +166,91 @@ describe('getAuthStatus', () => {
     expect(preview).toContain('67')
     // Full suffix must not appear
     expect(preview).not.toContain('ABCDEFGHIJKLMNOPQRSTUVWXYZ01234567')
+  })
+
+  // ---------------------------------------------------------------------------
+  // Dual-source workspace key tests (env vs settings)
+  // ---------------------------------------------------------------------------
+
+  test('workspaceKey.source=env when ANTHROPIC_API_KEY env var is set', async () => {
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-api03-' + 'X'.repeat(50)
+    mock.module('src/utils/auth.ts', () => ({
+      getClaudeAIOAuthTokens: () => null,
+      hasAnthropicApiKeyAuth: () => true,
+      isAnthropicAuthEnabled: () => false,
+      getSubscriptionType: () => null,
+    }))
+    mock.module('src/utils/config.ts', () => ({
+      isConfigEnabled: () => true,
+      getGlobalConfig: () => ({
+        workspaceApiKey: 'sk-ant-api03-' + 'Y'.repeat(50),
+      }),
+    }))
+    const { getAuthStatus } = await import('../getAuthStatus.js')
+    const status = getAuthStatus()
+    expect(status.workspaceKey.source).toBe('env')
+    expect(status.workspaceKey.set).toBe(true)
+  })
+
+  test('workspaceKey.source=settings when only workspaceApiKey in config is set', async () => {
+    delete process.env.ANTHROPIC_API_KEY
+    mock.module('src/utils/auth.ts', () => ({
+      getClaudeAIOAuthTokens: () => null,
+      hasAnthropicApiKeyAuth: () => false,
+      isAnthropicAuthEnabled: () => false,
+      getSubscriptionType: () => null,
+    }))
+    mock.module('src/utils/config.ts', () => ({
+      isConfigEnabled: () => true,
+      getGlobalConfig: () => ({
+        workspaceApiKey: 'sk-ant-api03-' + 'Z'.repeat(50),
+      }),
+    }))
+    const { getAuthStatus } = await import('../getAuthStatus.js')
+    const status = getAuthStatus()
+    expect(status.workspaceKey.source).toBe('settings')
+    expect(status.workspaceKey.set).toBe(true)
+    expect(status.workspaceKey.prefixValid).toBe(true)
+  })
+
+  test('workspaceKey.source=null when neither env nor settings has a key', async () => {
+    delete process.env.ANTHROPIC_API_KEY
+    mock.module('src/utils/auth.ts', () => ({
+      getClaudeAIOAuthTokens: () => null,
+      hasAnthropicApiKeyAuth: () => false,
+      isAnthropicAuthEnabled: () => false,
+      getSubscriptionType: () => null,
+    }))
+    mock.module('src/utils/config.ts', () => ({
+      isConfigEnabled: () => true,
+      getGlobalConfig: () => ({ workspaceApiKey: undefined }),
+    }))
+    const { getAuthStatus } = await import('../getAuthStatus.js')
+    const status = getAuthStatus()
+    expect(status.workspaceKey.source).toBeNull()
+    expect(status.workspaceKey.set).toBe(false)
+  })
+
+  test('env takes precedence over settings when both are set', async () => {
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-api03-FROMENV' + 'E'.repeat(40)
+    mock.module('src/utils/auth.ts', () => ({
+      getClaudeAIOAuthTokens: () => null,
+      hasAnthropicApiKeyAuth: () => true,
+      isAnthropicAuthEnabled: () => false,
+      getSubscriptionType: () => null,
+    }))
+    mock.module('src/utils/config.ts', () => ({
+      isConfigEnabled: () => true,
+      getGlobalConfig: () => ({
+        workspaceApiKey: 'sk-ant-api03-FROMSETTINGS' + 'S'.repeat(40),
+      }),
+    }))
+    const { getAuthStatus } = await import('../getAuthStatus.js')
+    const status = getAuthStatus()
+    // env wins
+    expect(status.workspaceKey.source).toBe('env')
+    // preview must NOT contain the settings key suffix
+    expect(status.workspaceKey.keyPreview).not.toContain('FROMSETTINGS')
   })
 
   // Third-party provider tests removed 2026-05-06 — that surface was deleted
