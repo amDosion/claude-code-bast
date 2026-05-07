@@ -7,6 +7,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
+import { getIsNonInteractiveSession } from '../../bootstrap/state.js'
 import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
 import type { Command, LocalCommandResult } from '../../types/command.js'
 
@@ -124,130 +125,146 @@ const USAGE_TEXT = [
   '  This is useful when you want to ensure a clean context window.',
 ].join('\n')
 
+export async function callBreakCache(args: string): Promise<LocalCommandResult> {
+  const scope = args.trim().toLowerCase()
+  const markerPath = getBreakCacheMarkerPath()
+  const alwaysPath = getBreakCacheAlwaysPath()
+
+  // ── status ──
+  if (scope === 'status') {
+    const stats = readStats()
+    const onceActive = existsSync(markerPath)
+    const alwaysActive = existsSync(alwaysPath)
+    return {
+      type: 'text',
+      value: [
+        '## Break-Cache Status',
+        '',
+        `  Once marker:    ${onceActive ? 'ACTIVE (next call will bust cache)' : 'not set'}`,
+        `  Always mode:    ${alwaysActive ? 'ON (every call busts cache)' : 'off'}`,
+        '',
+        '## Stats',
+        `  total_breaks:   ${stats.totalBreaks}`,
+        `  last_break_at:  ${stats.lastBreakAt ?? 'never'}`,
+      ].join('\n'),
+    }
+  }
+
+  // ── off ──
+  if (scope === 'off') {
+    let cleared = false
+    if (existsSync(markerPath)) {
+      unlinkSync(markerPath)
+      cleared = true
+    }
+    if (existsSync(alwaysPath)) {
+      unlinkSync(alwaysPath)
+      cleared = true
+    }
+    appendBreakEvent('always_off')
+    return {
+      type: 'text',
+      value: cleared
+        ? 'Break-cache disabled. Removed once marker and/or always flag.'
+        : 'Break-cache was not active.',
+    }
+  }
+
+  // ── --clear ──
+  if (scope === '--clear') {
+    if (existsSync(markerPath)) {
+      unlinkSync(markerPath)
+      return {
+        type: 'text',
+        value: `Cache-break marker cleared.\n  ${markerPath}`,
+      }
+    }
+    return {
+      type: 'text',
+      value: 'No cache-break marker was set.',
+    }
+  }
+
+  // ── always ──
+  if (scope === 'always') {
+    writeFileSync(alwaysPath, new Date().toISOString(), 'utf8')
+    appendBreakEvent('always_on')
+    return {
+      type: 'text',
+      value: [
+        '## Always-on cache break enabled',
+        '',
+        `Flag written: ${alwaysPath}`,
+        '',
+        'Every API call will now append a random nonce to the system prompt,',
+        'permanently preventing prompt-cache hits for this session.',
+        '',
+        'To disable: `/break-cache off`',
+      ].join('\n'),
+    }
+  }
+
+  // ── once (legacy default, or explicit "once") ──
+  if (scope === '' || scope === 'once') {
+    const timestamp = new Date().toISOString()
+    writeFileSync(markerPath, timestamp, 'utf8')
+    incrementBreakCount()
+    const stats = readStats()
+
+    return {
+      type: 'text',
+      value: [
+        '## Cache break scheduled',
+        '',
+        `Marker written: ${markerPath}`,
+        `Timestamp: ${timestamp}`,
+        '',
+        'The next API call will append a random nonce to the system prompt,',
+        'causing a cache miss. The marker is removed automatically after use.',
+        '',
+        'To cancel before the next call: `/break-cache --clear`',
+        'For every call:               `/break-cache always`',
+        '',
+        `Total breaks this session: ${stats.totalBreaks}`,
+        '',
+        '_How it works: Anthropic prompt cache keys on the system-prompt prefix hash._',
+        '_A unique nonce invalidates the hash, forcing a fresh compute._',
+      ].join('\n'),
+    }
+  }
+
+  // ── unknown scope ──
+  return {
+    type: 'text',
+    value: [`Unknown scope: "${scope}"`, '', USAGE_TEXT].join('\n'),
+  }
+}
+
 const breakCache: Command = {
+  type: 'local-jsx',
+  name: 'break-cache',
+  description:
+    'Manage prompt-cache breaking. Open actions or run: once, status, always, off',
+  isHidden: false,
+  isEnabled: () => !getIsNonInteractiveSession(),
+  argumentHint: '[once|status|always|off|--clear]',
+  bridgeSafe: true,
+  getBridgeInvocationError: args =>
+    args.trim() ? undefined : 'Use /break-cache once/status/always/off over Remote Control.',
+  load: () => import('./panel.js'),
+}
+
+export const breakCacheNonInteractive: Command = {
   type: 'local',
   name: 'break-cache',
   description:
-    'Force the next (or all) API call(s) to miss prompt cache. Scopes: once (default), always, off',
+    'Force the next (or all) API call(s) to miss prompt cache. Scopes: once, status, always, off',
   isHidden: false,
-  isEnabled: () => true,
+  isEnabled: () => getIsNonInteractiveSession(),
   supportsNonInteractive: true,
   bridgeSafe: true,
   load: async () => ({
-    call: async (args: string): Promise<LocalCommandResult> => {
-      const scope = args.trim().toLowerCase()
-      const markerPath = getBreakCacheMarkerPath()
-      const alwaysPath = getBreakCacheAlwaysPath()
-
-      // ── status ──
-      if (scope === 'status') {
-        const stats = readStats()
-        const onceActive = existsSync(markerPath)
-        const alwaysActive = existsSync(alwaysPath)
-        return {
-          type: 'text',
-          value: [
-            '## Break-Cache Status',
-            '',
-            `  Once marker:    ${onceActive ? 'ACTIVE (next call will bust cache)' : 'not set'}`,
-            `  Always mode:    ${alwaysActive ? 'ON (every call busts cache)' : 'off'}`,
-            '',
-            '## Stats',
-            `  total_breaks:   ${stats.totalBreaks}`,
-            `  last_break_at:  ${stats.lastBreakAt ?? 'never'}`,
-          ].join('\n'),
-        }
-      }
-
-      // ── off ──
-      if (scope === 'off') {
-        let cleared = false
-        if (existsSync(markerPath)) {
-          unlinkSync(markerPath)
-          cleared = true
-        }
-        if (existsSync(alwaysPath)) {
-          unlinkSync(alwaysPath)
-          cleared = true
-        }
-        appendBreakEvent('always_off')
-        return {
-          type: 'text',
-          value: cleared
-            ? 'Break-cache disabled. Removed once marker and/or always flag.'
-            : 'Break-cache was not active.',
-        }
-      }
-
-      // ── --clear ──
-      if (scope === '--clear') {
-        if (existsSync(markerPath)) {
-          unlinkSync(markerPath)
-          return {
-            type: 'text',
-            value: `Cache-break marker cleared.\n  ${markerPath}`,
-          }
-        }
-        return {
-          type: 'text',
-          value: 'No cache-break marker was set.',
-        }
-      }
-
-      // ── always ──
-      if (scope === 'always') {
-        writeFileSync(alwaysPath, new Date().toISOString(), 'utf8')
-        appendBreakEvent('always_on')
-        return {
-          type: 'text',
-          value: [
-            '## Always-on cache break enabled',
-            '',
-            `Flag written: ${alwaysPath}`,
-            '',
-            'Every API call will now append a random nonce to the system prompt,',
-            'permanently preventing prompt-cache hits for this session.',
-            '',
-            'To disable: `/break-cache off`',
-          ].join('\n'),
-        }
-      }
-
-      // ── once (default, or explicit "once") ──
-      if (scope === '' || scope === 'once') {
-        const timestamp = new Date().toISOString()
-        writeFileSync(markerPath, timestamp, 'utf8')
-        incrementBreakCount()
-        const stats = readStats()
-
-        return {
-          type: 'text',
-          value: [
-            '## Cache break scheduled',
-            '',
-            `Marker written: ${markerPath}`,
-            `Timestamp: ${timestamp}`,
-            '',
-            'The next API call will append a random nonce to the system prompt,',
-            'causing a cache miss. The marker is removed automatically after use.',
-            '',
-            'To cancel before the next call: `/break-cache --clear`',
-            'For every call:               `/break-cache always`',
-            '',
-            `Total breaks this session: ${stats.totalBreaks}`,
-            '',
-            '_How it works: Anthropic prompt cache keys on the system-prompt prefix hash._',
-            '_A unique nonce invalidates the hash, forcing a fresh compute._',
-          ].join('\n'),
-        }
-      }
-
-      // ── unknown scope ──
-      return {
-        type: 'text',
-        value: [`Unknown scope: "${scope}"`, '', USAGE_TEXT].join('\n'),
-      }
-    },
+    call: callBreakCache,
   }),
 }
 

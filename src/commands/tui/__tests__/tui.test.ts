@@ -52,19 +52,8 @@ afterEach(() => {
 async function invokeCmd(
   args: string,
 ): Promise<{ type: string; value: string }> {
-  const mod = await import('../index.js')
-  const cmd = mod.default
-  const loaded = await (
-    cmd as unknown as {
-      load: () => Promise<{
-        call: (
-          args: string,
-          ctx: never,
-        ) => Promise<{ type: string; value: string }>
-      }>
-    }
-  ).load()
-  return loaded.call(args, {} as never)
+  const { callTui } = await import('../index.js')
+  return callTui(args) as Promise<{ type: string; value: string }>
 }
 
 describe('tui command metadata', () => {
@@ -72,19 +61,59 @@ describe('tui command metadata', () => {
     const mod = await import('../index.js')
     const cmd = mod.default
     expect(cmd.name).toBe('tui')
-    expect(cmd.type).toBe('local')
+    expect(cmd.type).toBe('local-jsx')
     expect(cmd.description).toContain('flicker')
   })
 
-  test('isEnabled returns true', async () => {
+  test('interactive and noninteractive entries are mutually gated', async () => {
     const mod = await import('../index.js')
-    expect(mod.default.isEnabled?.()).toBe(true)
+    const interactiveEnabled = mod.default.isEnabled?.()
+    const nonInteractiveEnabled = mod.tuiNonInteractive.isEnabled?.()
+
+    expect(typeof interactiveEnabled).toBe('boolean')
+    expect(nonInteractiveEnabled).toBe(!interactiveEnabled)
   })
 
   test('supportsNonInteractive is true', async () => {
     const mod = await import('../index.js')
-    const cmd = mod.default as unknown as { supportsNonInteractive: boolean }
+    const cmd = mod.tuiNonInteractive as unknown as {
+      supportsNonInteractive: boolean
+      type: string
+    }
+    expect(cmd.type).toBe('local')
     expect(cmd.supportsNonInteractive).toBe(true)
+  })
+
+  test('local-jsx no args renders action panel without completing', async () => {
+    const { call } = await import('../panel.js')
+    const messages: string[] = []
+
+    const node = await call(
+      msg => {
+        if (msg) messages.push(msg)
+      },
+      {} as never,
+      '',
+    )
+
+    expect(node).not.toBeNull()
+    expect(messages).toHaveLength(0)
+  })
+
+  test('local-jsx explicit args completes through onDone', async () => {
+    const { call } = await import('../panel.js')
+    const messages: string[] = []
+
+    const node = await call(
+      msg => {
+        if (msg) messages.push(msg)
+      },
+      {} as never,
+      'status',
+    )
+
+    expect(node).toBeNull()
+    expect(messages.join('\n')).toContain('TUI Mode Status')
   })
 })
 

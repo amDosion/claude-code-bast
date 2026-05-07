@@ -36,6 +36,17 @@ describe('callLocalVault', () => {
     delete process.env['CLAUDE_LOCAL_VAULT_PASSPHRASE']
   })
 
+  test('no args renders action panel without completing', async () => {
+    const node = await callLocalVault(
+      onDone as Parameters<typeof callLocalVault>[0],
+      {} as Parameters<typeof callLocalVault>[1],
+      '',
+    )
+
+    expect(node).not.toBeNull()
+    expect(messages).toHaveLength(0)
+  })
+
   test('list sub-command shows key count', async () => {
     await callLocalVault(
       onDone as Parameters<typeof callLocalVault>[0],
@@ -95,7 +106,10 @@ describe('callLocalVault', () => {
       'get REVEAL_KEY --reveal',
     )
     expect(messages.some(m => m.includes('REVEAL_KEY'))).toBe(true)
-    expect(node).not.toBeNull()
+    const allMessages = messages.join('\n')
+    expect(allMessages).toContain(secretValue)
+    expect(allMessages).toContain('Warning')
+    expect(node).toBeNull()
   })
 
   test('get without --reveal does NOT expose full secret in onDone messages', async () => {

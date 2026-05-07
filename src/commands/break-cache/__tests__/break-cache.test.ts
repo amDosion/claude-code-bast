@@ -15,6 +15,13 @@ mock.module('src/services/analytics/index.js', () => ({
 let tmpDir: string
 let claudeDir: string
 
+async function invokeBreakCache(
+  args: string,
+): Promise<{ type: string; value: string }> {
+  const { callBreakCache } = await import('../index.js')
+  return callBreakCache(args) as Promise<{ type: string; value: string }>
+}
+
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), 'break-cache-test-'))
   claudeDir = join(tmpDir, '.claude')
@@ -40,35 +47,31 @@ describe('break-cache command', () => {
     const mod = await import('../index.js')
     const cmd = mod.default
     expect(cmd.name).toBe('break-cache')
-    expect(cmd.type).toBe('local')
+    expect(cmd.type).toBe('local-jsx')
+    expect(cmd.argumentHint).toContain('status')
+
+    const nonInteractive = mod.breakCacheNonInteractive
+    expect(nonInteractive.name).toBe('break-cache')
+    expect(nonInteractive.type).toBe('local')
     expect(
-      (cmd as unknown as { supportsNonInteractive: boolean })
+      (nonInteractive as unknown as { supportsNonInteractive: boolean })
         .supportsNonInteractive,
     ).toBe(true)
   })
 
-  test('isEnabled returns true', async () => {
+  test('interactive and noninteractive entries are mutually gated', async () => {
     const mod = await import('../index.js')
-    const cmd = mod.default
-    expect(cmd.isEnabled?.()).toBe(true)
+    const interactiveEnabled = mod.default.isEnabled?.()
+    const nonInteractiveEnabled = mod.breakCacheNonInteractive.isEnabled?.()
+
+    expect(typeof interactiveEnabled).toBe('boolean')
+    expect(nonInteractiveEnabled).toBe(!interactiveEnabled)
   })
 
   test('writes marker file and confirms in message', async () => {
     const mod = await import('../index.js')
-    const cmd = mod.default
     const { getBreakCacheMarkerPath } = mod
-
-    const loaded = await (
-      cmd as unknown as {
-        load: () => Promise<{
-          call: (
-            args: string,
-            ctx: never,
-          ) => Promise<{ type: string; value: string }>
-        }>
-      }
-    ).load()
-    const result = await loaded.call('', {} as never)
+    const result = await invokeBreakCache('')
 
     expect(result.type).toBe('text')
     if (result.type === 'text') {
@@ -87,26 +90,15 @@ describe('break-cache command', () => {
 
   test('--clear removes an existing marker', async () => {
     const mod = await import('../index.js')
-    const cmd = mod.default
     const { getBreakCacheMarkerPath } = mod
-    const loaded = await (
-      cmd as unknown as {
-        load: () => Promise<{
-          call: (
-            args: string,
-            ctx: never,
-          ) => Promise<{ type: string; value: string }>
-        }>
-      }
-    ).load()
 
     // Set the marker first
-    await loaded.call('', {} as never)
+    await invokeBreakCache('')
     const markerPath = getBreakCacheMarkerPath()
     expect(existsSync(markerPath)).toBe(true)
 
     // Now clear it
-    const clearResult = await loaded.call('--clear', {} as never)
+    const clearResult = await invokeBreakCache('--clear')
     expect(clearResult.type).toBe('text')
     if (clearResult.type === 'text') {
       expect(clearResult.value).toContain('cleared')
@@ -116,24 +108,13 @@ describe('break-cache command', () => {
 
   test('--clear when no marker returns no-marker message', async () => {
     const mod = await import('../index.js')
-    const cmd = mod.default
     const { getBreakCacheMarkerPath } = mod
     const markerPath = getBreakCacheMarkerPath()
 
     // Ensure it does not exist
     if (existsSync(markerPath)) unlinkSync(markerPath)
 
-    const loaded = await (
-      cmd as unknown as {
-        load: () => Promise<{
-          call: (
-            args: string,
-            ctx: never,
-          ) => Promise<{ type: string; value: string }>
-        }>
-      }
-    ).load()
-    const result = await loaded.call('--clear', {} as never)
+    const result = await invokeBreakCache('--clear')
     expect(result.type).toBe('text')
     if (result.type === 'text') {
       expect(result.value).toContain('No cache-break marker')
@@ -150,19 +131,8 @@ describe('break-cache command', () => {
 
   test('"once" scope is same as empty args', async () => {
     const mod = await import('../index.js')
-    const cmd = mod.default
     const { getBreakCacheMarkerPath } = mod
-    const loaded = await (
-      cmd as unknown as {
-        load: () => Promise<{
-          call: (
-            args: string,
-            ctx: never,
-          ) => Promise<{ type: string; value: string }>
-        }>
-      }
-    ).load()
-    const result = await loaded.call('once', {} as never)
+    const result = await invokeBreakCache('once')
     expect(result.type).toBe('text')
     if (result.type === 'text') {
       expect(result.value).toContain('Cache break scheduled')
@@ -173,19 +143,8 @@ describe('break-cache command', () => {
 
   test('"always" scope writes the always flag', async () => {
     const mod = await import('../index.js')
-    const cmd = mod.default
     const { getBreakCacheAlwaysPath } = mod
-    const loaded = await (
-      cmd as unknown as {
-        load: () => Promise<{
-          call: (
-            args: string,
-            ctx: never,
-          ) => Promise<{ type: string; value: string }>
-        }>
-      }
-    ).load()
-    const result = await loaded.call('always', {} as never)
+    const result = await invokeBreakCache('always')
     expect(result.type).toBe('text')
     if (result.type === 'text') {
       expect(result.value).toContain('Always-on')
@@ -197,25 +156,14 @@ describe('break-cache command', () => {
 
   test('"off" scope clears both flags', async () => {
     const mod = await import('../index.js')
-    const cmd = mod.default
     const { getBreakCacheMarkerPath, getBreakCacheAlwaysPath } = mod
-    const loaded = await (
-      cmd as unknown as {
-        load: () => Promise<{
-          call: (
-            args: string,
-            ctx: never,
-          ) => Promise<{ type: string; value: string }>
-        }>
-      }
-    ).load()
     // Set both markers
-    await loaded.call('', {} as never)
-    await loaded.call('always', {} as never)
+    await invokeBreakCache('')
+    await invokeBreakCache('always')
     expect(existsSync(getBreakCacheMarkerPath())).toBe(true)
     expect(existsSync(getBreakCacheAlwaysPath())).toBe(true)
     // Clear both
-    const result = await loaded.call('off', {} as never)
+    const result = await invokeBreakCache('off')
     expect(result.type).toBe('text')
     if (result.type === 'text') {
       expect(result.value).toContain('disabled')
@@ -225,19 +173,7 @@ describe('break-cache command', () => {
   })
 
   test('"status" scope shows current state', async () => {
-    const mod = await import('../index.js')
-    const cmd = mod.default
-    const loaded = await (
-      cmd as unknown as {
-        load: () => Promise<{
-          call: (
-            args: string,
-            ctx: never,
-          ) => Promise<{ type: string; value: string }>
-        }>
-      }
-    ).load()
-    const result = await loaded.call('status', {} as never)
+    const result = await invokeBreakCache('status')
     expect(result.type).toBe('text')
     if (result.type === 'text') {
       expect(result.value).toContain('Break-Cache Status')
@@ -247,19 +183,7 @@ describe('break-cache command', () => {
   })
 
   test('unknown scope returns usage text', async () => {
-    const mod = await import('../index.js')
-    const cmd = mod.default
-    const loaded = await (
-      cmd as unknown as {
-        load: () => Promise<{
-          call: (
-            args: string,
-            ctx: never,
-          ) => Promise<{ type: string; value: string }>
-        }>
-      }
-    ).load()
-    const result = await loaded.call('foobar', {} as never)
+    const result = await invokeBreakCache('foobar')
     expect(result.type).toBe('text')
     if (result.type === 'text') {
       expect(result.value).toContain('Unknown scope')
@@ -283,22 +207,11 @@ describe('break-cache command', () => {
     const { readFileSync } = await import('node:fs')
     const mod = await import('../index.js')
     const { getBreakCacheStatsPath } = mod
-    const cmd = mod.default
-    const loaded = await (
-      cmd as unknown as {
-        load: () => Promise<{
-          call: (
-            args: string,
-            ctx: never,
-          ) => Promise<{ type: string; value: string }>
-        }>
-      }
-    ).load()
 
     // Call /break-cache once, twice
-    await loaded.call('once', {} as never)
-    await loaded.call('once', {} as never)
-    await loaded.call('once', {} as never)
+    await invokeBreakCache('once')
+    await invokeBreakCache('once')
+    await invokeBreakCache('once')
 
     // Stats path should be a JSONL file with 3 'once' events
     const statsPath = getBreakCacheStatsPath()
@@ -311,9 +224,41 @@ describe('break-cache command', () => {
     expect(onceEvents.length).toBe(3)
 
     // The status command should report totalBreaks = 3
-    const statusResult = await loaded.call('status', {} as never)
+    const statusResult = await invokeBreakCache('status')
     if (statusResult.type === 'text') {
       expect(statusResult.value).toContain('total_breaks:   3')
     }
+  })
+
+  test('local-jsx no args renders action panel without completing', async () => {
+    const { call } = await import('../panel.js')
+    const messages: string[] = []
+
+    const node = await call(
+      msg => {
+        if (msg) messages.push(msg)
+      },
+      {} as never,
+      '',
+    )
+
+    expect(node).not.toBeNull()
+    expect(messages).toHaveLength(0)
+  })
+
+  test('local-jsx explicit args completes through onDone', async () => {
+    const { call } = await import('../panel.js')
+    const messages: string[] = []
+
+    const node = await call(
+      msg => {
+        if (msg) messages.push(msg)
+      },
+      {} as never,
+      'status',
+    )
+
+    expect(node).toBeNull()
+    expect(messages.join('\n')).toContain('Break-Cache Status')
   })
 })

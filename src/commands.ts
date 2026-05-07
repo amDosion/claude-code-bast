@@ -29,7 +29,9 @@ import login from './commands/login/index.js'
 import logout from './commands/logout/index.js'
 import installGitHubApp from './commands/install-github-app/index.js'
 import installSlackApp from './commands/install-slack-app/index.js'
-import breakCache from './commands/break-cache/index.js'
+import breakCache, {
+  breakCacheNonInteractive,
+} from './commands/break-cache/index.js'
 import mcp from './commands/mcp/index.js'
 import mobile from './commands/mobile/index.js'
 import onboarding from './commands/onboarding/index.js'
@@ -189,7 +191,7 @@ import {
 import antTrace from './commands/ant-trace/index.js'
 import perfIssue from './commands/perf-issue/index.js'
 import sandboxToggle from './commands/sandbox-toggle/index.js'
-import tui from './commands/tui/index.js'
+import tui, { tuiNonInteractive } from './commands/tui/index.js'
 import chrome from './commands/chrome/index.js'
 import stickers from './commands/stickers/index.js'
 import advisor from './commands/advisor.js'
@@ -406,10 +408,12 @@ const COMMANDS = memoize((): Command[] => [
   debugToolCall,
   perfIssue,
   breakCache,
+  breakCacheNonInteractive,
   issue,
   share,
   teleport,
   tui,
+  tuiNonInteractive,
   onboarding,
   ...(process.env.USER_TYPE === 'ant' && !process.env.IS_DEMO
     ? INTERNAL_ONLY_COMMANDS

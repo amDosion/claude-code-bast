@@ -27,6 +27,17 @@ describe('callLocalMemory', () => {
     delete process.env['CLAUDE_CONFIG_DIR']
   })
 
+  test('no args renders action panel without completing', async () => {
+    const node = await callLocalMemory(
+      onDone as Parameters<typeof callLocalMemory>[0],
+      {} as Parameters<typeof callLocalMemory>[1],
+      '',
+    )
+
+    expect(node).not.toBeNull()
+    expect(messages).toHaveLength(0)
+  })
+
   test('list sub-command with no stores', async () => {
     await callLocalMemory(
       onDone as Parameters<typeof callLocalMemory>[0],
@@ -93,6 +104,7 @@ describe('callLocalMemory', () => {
     expect(
       messages.some(m => m.includes('fetch-store') || m.includes('mykey')),
     ).toBe(true)
+    expect(messages.join('\n')).toContain('my entry value')
   })
 
   test('fetch for nonexistent key → not-found', async () => {
@@ -137,6 +149,9 @@ describe('callLocalMemory', () => {
     expect(messages.some(m => m.includes('2') || m.includes('ent-store'))).toBe(
       true,
     )
+    const allMessages = messages.join('\n')
+    expect(allMessages).toContain('alpha')
+    expect(allMessages).toContain('beta')
   })
 
   test('archive sub-command archives a store', async () => {
@@ -207,5 +222,6 @@ describe('callLocalMemory', () => {
     expect(
       messages.some(m => m.includes('auto-create-store') || m.includes('key1')),
     ).toBe(true)
+    expect(messages.join('\n')).toContain('value1')
   })
 })

@@ -1,4 +1,5 @@
 import React from 'react';
+import { Box, Dialog, Text, useInput } from '@anthropic/ink';
 import type { LocalJSXCommandCall } from '../../types/command.js';
 import { setSecret, getSecret, deleteSecret, listKeys, maskSecret } from '../../services/localVault/store.js';
 import { LocalVaultView } from './LocalVaultView.js';
@@ -10,14 +11,125 @@ const USAGE = 'Usage: /local-vault list | set <key> <value> | get <key> [--revea
 
 type LocalVaultViewProps = React.ComponentProps<typeof LocalVaultView>;
 
+type LocalVaultAction = {
+  label: string;
+  description: string;
+  run: () => void;
+};
+
+const ACTION_LABEL_COLUMN_WIDTH = 26;
+
+function formatKeyList(keys: string[]): string {
+  if (keys.length === 0) {
+    return 'No secrets stored.';
+  }
+  return ['Local Vault Keys', ...keys.map(key => `- ${key}`)].join('\n');
+}
+
+function LocalVaultPanel({
+  onDone,
+}: {
+  onDone: LocalJSXCommandOnDone;
+}): React.ReactNode {
+  const [selectedIndex, setSelectedIndex] = React.useState(0);
+  const actions = React.useMemo<LocalVaultAction[]>(
+    () => [
+      {
+        label: 'List',
+        description: 'Show stored secret keys without values',
+        run: () => {
+          void listKeys().then(keys => {
+            onDone(formatKeyList(keys), { display: 'system' });
+          });
+        },
+      },
+      {
+        label: 'Set',
+        description: 'Prepare a command to store a redacted secret',
+        run: () =>
+          onDone(undefined, {
+            display: 'skip',
+            nextInput: '/local-vault set ',
+          }),
+      },
+      {
+        label: 'Get',
+        description: 'Prepare a masked secret lookup',
+        run: () =>
+          onDone(undefined, {
+            display: 'skip',
+            nextInput: '/local-vault get ',
+          }),
+      },
+      {
+        label: 'Delete',
+        description: 'Prepare a secret deletion command',
+        run: () =>
+          onDone(undefined, {
+            display: 'skip',
+            nextInput: '/local-vault delete ',
+          }),
+      },
+      {
+        label: 'About',
+        description: 'Show local vault command syntax',
+        run: () => onDone(USAGE, { display: 'system' }),
+      },
+    ],
+    [onDone],
+  );
+
+  const selectCurrent = () => {
+    const action = actions[selectedIndex];
+    if (!action) return;
+    action.run();
+  };
+
+  useInput((_input, key) => {
+    if (key.upArrow) {
+      setSelectedIndex(index => Math.max(0, index - 1));
+      return;
+    }
+    if (key.downArrow) {
+      setSelectedIndex(index => Math.min(actions.length - 1, index + 1));
+      return;
+    }
+    if (key.return) {
+      selectCurrent();
+    }
+  });
+
+  return (
+    <Dialog
+      title="Local Vault"
+      subtitle={`${actions.length} actions`}
+      onCancel={() => onDone('Local vault panel dismissed', { display: 'system' })}
+      color="background"
+      hideInputGuide
+    >
+      <Box flexDirection="column">
+        {actions.map((action, index) => (
+          <Box key={action.label} flexDirection="row">
+            <Text>{`${index === selectedIndex ? '›' : ' '} ${action.label}`.padEnd(ACTION_LABEL_COLUMN_WIDTH)}</Text>
+            <Text dimColor>{action.description}</Text>
+          </Box>
+        ))}
+        <Box marginTop={1}>
+          <Text dimColor>↑/↓ select · Enter run · Esc close</Text>
+        </Box>
+      </Box>
+    </Dialog>
+  );
+}
+
 async function dispatchLocalVault(
   parsed: ReturnType<typeof parseLocalVaultArgs>,
   onDone: LocalJSXCommandOnDone,
 ): Promise<LocalVaultViewProps | null> {
   if (parsed.action === 'list') {
     const keys = await listKeys();
-    onDone(keys.length === 0 ? 'No secrets stored.' : `${keys.length} secret(s) stored.`, { display: 'system' });
-    return { mode: 'list', keys };
+    onDone(formatKeyList(keys), { display: 'system' });
+    return null;
   }
 
   if (parsed.action === 'set') {
@@ -25,7 +137,7 @@ async function dispatchLocalVault(
     await setSecret(key, value);
     // Never echo the value in onDone — security invariant
     onDone(`Secret stored: ${key} = [REDACTED]`, { display: 'system' });
-    return { mode: 'set-ok', key };
+    return null;
   }
 
   if (parsed.action === 'get') {
@@ -33,17 +145,24 @@ async function dispatchLocalVault(
     const value = await getSecret(key);
     if (value === null) {
       onDone(`Key not found: ${key}`, { display: 'system' });
-      return { mode: 'not-found', key };
+      return null;
     }
     if (reveal) {
       // Security invariant: only --reveal shows plaintext; warn user
-      onDone(`Secret revealed for: ${key}`, { display: 'system' });
-      return { mode: 'get-revealed', key, value };
+      onDone(
+        [
+          `Secret revealed for: ${key}`,
+          'Warning: secret revealed in terminal.',
+          `${key} = ${value}`,
+        ].join('\n'),
+        { display: 'system' },
+      );
+      return null;
     }
     // Default: mask display
     const masked = maskSecret(value);
     onDone(`Key found: ${key} = ${masked}`, { display: 'system' });
-    return { mode: 'get-masked', key, masked };
+    return null;
   }
 
   if (parsed.action === 'delete') {
@@ -51,10 +170,10 @@ async function dispatchLocalVault(
     const deleted = await deleteSecret(key);
     if (!deleted) {
       onDone(`Key not found: ${key}`, { display: 'system' });
-      return { mode: 'not-found', key };
+      return null;
     }
     onDone(`Deleted: ${key}`, { display: 'system' });
-    return { mode: 'deleted', key };
+    return null;
   }
 
   // Exhaustive guard — should not be reached for valid parsed actions
@@ -62,7 +181,7 @@ async function dispatchLocalVault(
   return null;
 }
 
-export const callLocalVault: LocalJSXCommandCall = launchCommand<
+const callLocalVaultDirect: LocalJSXCommandCall = launchCommand<
   ReturnType<typeof parseLocalVaultArgs>,
   LocalVaultViewProps
 >({
@@ -78,3 +197,10 @@ export const callLocalVault: LocalJSXCommandCall = launchCommand<
   View: LocalVaultView,
   errorView: (msg: string) => React.createElement(LocalVaultView, { mode: 'error', message: msg }),
 });
+
+export const callLocalVault: LocalJSXCommandCall = async (onDone, context, args) => {
+  if ((args ?? '').trim() === '') {
+    return <LocalVaultPanel onDone={onDone} />;
+  }
+  return callLocalVaultDirect(onDone, context, args);
+};
