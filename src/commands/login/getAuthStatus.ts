@@ -2,15 +2,17 @@
  * getAuthStatus — pure function; no network calls.
  *
  * Reads process.env + the local OAuth credential file (via the already-memoized
- * getClaudeAIOAuthTokens()) to produce an AuthStatus snapshot used by
- * AuthPlaneSummary for the /login UI.
+ * getClaudeAIOAuthTokens()) + globalConfig.workspaceApiKey to produce an
+ * AuthStatus snapshot used by AuthPlaneSummary for the /login UI.
  *
  * Security contract:
- *   - ANTHROPIC_API_KEY value is NEVER returned raw; only a masked preview is exposed.
+ *   - ANTHROPIC_API_KEY / workspaceApiKey values are NEVER returned raw; only
+ *     masked previews are exposed.
  *   - Third-party API key values are NEVER included; only boolean presence flags.
  */
 
 import { getClaudeAIOAuthTokens } from '../../utils/auth.js'
+import { getGlobalConfig } from '../../utils/config.js'
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -26,7 +28,10 @@ export interface AuthStatus {
     accountEmail: null
   }
   workspaceKey: {
-    /** true when ANTHROPIC_API_KEY env var is non-empty */
+    /**
+     * true when a workspace API key is available from either the env var or
+     * saved settings (workspaceApiKey in ~/.claude.json).
+     */
     set: boolean
     /** true when key begins with the expected 'sk-ant-api03-' prefix */
     prefixValid: boolean
@@ -35,6 +40,13 @@ export interface AuthStatus {
      * NEVER contains the raw key value.
      */
     keyPreview: string | null
+    /**
+     * Where the key came from:
+     *   'env'      — ANTHROPIC_API_KEY environment variable
+     *   'settings' — workspaceApiKey saved in ~/.claude.json via /login UI
+     *   null       — not set
+     */
+    source: 'env' | 'settings' | null
   }
 }
 
@@ -111,8 +123,24 @@ export function getAuthStatus(): AuthStatus {
     }
   }
 
-  // ---- 2. Workspace API key plane ----
-  const rawKey = process.env.ANTHROPIC_API_KEY ?? ''
+  // ---- 2. Workspace API key plane (dual-source: env var > settings) ----
+  const envKey = (process.env.ANTHROPIC_API_KEY ?? '').trim()
+  const settingsKey = getGlobalConfig().workspaceApiKey?.trim() ?? ''
+
+  let rawKey: string
+  let keySource: 'env' | 'settings' | null
+
+  if (envKey.length > 0) {
+    rawKey = envKey
+    keySource = 'env'
+  } else if (settingsKey.length > 0) {
+    rawKey = settingsKey
+    keySource = 'settings'
+  } else {
+    rawKey = ''
+    keySource = null
+  }
+
   const keySet = rawKey.length > 0
   const prefixValid = rawKey.startsWith(WORKSPACE_KEY_PREFIX)
   const keyPreview = keySet ? maskApiKey(rawKey) : null
@@ -127,6 +155,7 @@ export function getAuthStatus(): AuthStatus {
       set: keySet,
       prefixValid,
       keyPreview,
+      source: keySource,
     },
   }
 }

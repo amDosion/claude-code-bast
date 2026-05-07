@@ -879,7 +879,9 @@ export const SettingsSchema = lazySchema(() =>
             voiceProvider: z
               .enum(['anthropic', 'doubao'])
               .optional()
-              .describe('Voice STT backend: "anthropic" (default) or "doubao" (Doubao ASR)'),
+              .describe(
+                'Voice STT backend: "anthropic" (default) or "doubao" (Doubao ASR)',
+              ),
           }
         : {}),
       ...(feature('KAIROS')
@@ -1081,6 +1083,24 @@ export const SettingsSchema = lazySchema(() =>
             'Useful for enterprise administrators to add organization-specific context ' +
             '(e.g., "All plugins from our internal marketplace are vetted and approved.").',
         ),
+      /**
+       * Workspace API key stored in settings.json for /login UI convenience.
+       *
+       * ⚠️ SECURITY NOTICE: stored in plaintext in ~/.claude.json — ensure this
+       * file is gitignored and has restricted permissions (chmod 600 on POSIX).
+       * Use ANTHROPIC_API_KEY env var in CI/CD or shared environments instead.
+       *
+       * Must start with "sk-ant-api03-". Read via getGlobalConfig().workspaceApiKey
+       * or the ANTHROPIC_API_KEY env var (env var takes precedence).
+       */
+      workspaceApiKey: z
+        .string()
+        .optional()
+        .describe(
+          'Workspace API key (sk-ant-api03-*) saved via /login UI. ' +
+            'Stored in plaintext — keep this file gitignored and restrict its permissions. ' +
+            'ANTHROPIC_API_KEY environment variable takes precedence when both are set.',
+        ),
     })
     .passthrough(),
 )
@@ -1159,4 +1179,3 @@ export type PluginConfig = {
     [serverName: string]: UserConfigValues
   }
 }
-

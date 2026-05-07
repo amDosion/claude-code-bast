@@ -61,10 +61,19 @@ function WorkspaceKeyRow({ workspaceKey }: { workspaceKey: AuthStatus['workspace
     );
   }
 
+  // Source label: distinguish env var from saved settings
+  const sourceLabel =
+    workspaceKey.source === 'settings'
+      ? '  (saved to settings)'
+      : workspaceKey.source === 'env'
+        ? '  (from ANTHROPIC_API_KEY env)'
+        : '';
+
   return (
     <Box>
       <Text color="success">{'☑ Workspace API key                '}</Text>
       <Text>{workspaceKey.keyPreview}</Text>
+      {sourceLabel ? <Text dimColor>{sourceLabel}</Text> : null}
     </Box>
   );
 }
@@ -81,10 +90,11 @@ function WorkspaceKeyInstructions({
     return (
       <Box flexDirection="column" marginLeft={5} marginTop={0}>
         <Text dimColor>To enable /vault /agents-platform /memory-stores:</Text>
+        <Text dimColor>{'Press W to set now (saves to settings.json, no restart needed)'}</Text>
+        <Text dimColor>{'  — or —'}</Text>
         <Text dimColor>{'1. Open https://console.anthropic.com/settings/keys'}</Text>
         <Text dimColor>{'2. Create a key (sk-ant-api03-*)'}</Text>
-        <Text dimColor>{'3. Set ANTHROPIC_API_KEY=<paste>'}</Text>
-        <Text dimColor>{'4. Restart Claude Code'}</Text>
+        <Text dimColor>{'3. Set ANTHROPIC_API_KEY=<key> and restart'}</Text>
       </Box>
     );
   }

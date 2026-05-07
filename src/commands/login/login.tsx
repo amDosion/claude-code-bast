@@ -5,7 +5,7 @@ import { clearTrustedDeviceToken, enrollTrustedDevice } from '../../bridge/trust
 import type { LocalJSXCommandContext } from '../../commands.js';
 import { ConfigurableShortcutHint } from '../../components/ConfigurableShortcutHint.js';
 import { ConsoleOAuthFlow } from '../../components/ConsoleOAuthFlow.js';
-import { Box, Dialog } from '@anthropic/ink';
+import { Box, Dialog, useInput } from '@anthropic/ink';
 import { useMainLoopModel } from '../../hooks/useMainLoopModel.js';
 import { Text } from '@anthropic/ink';
 import { refreshGrowthBookAfterAuthChange } from '../../services/analytics/growthbook.js';
@@ -20,6 +20,7 @@ import {
 import { resetUserCache } from '../../utils/user.js';
 import { AuthPlaneSummary } from './AuthPlaneSummary.js';
 import { getAuthStatus } from './getAuthStatus.js';
+import { WorkspaceKeyInputContainer } from './WorkspaceKeyInput.js';
 
 export async function call(onDone: LocalJSXCommandOnDone, context: LocalJSXCommandContext): Promise<React.ReactNode> {
   // Snapshot auth state once at call time (pure, no network)
@@ -74,6 +75,31 @@ export function Login(props: {
   authStatus?: import('./getAuthStatus.js').AuthStatus;
 }): React.ReactNode {
   const mainLoopModel = useMainLoopModel();
+  const [showWorkspaceKeyInput, setShowWorkspaceKeyInput] = React.useState(false);
+  // Re-snapshot auth status after a key is saved so the row updates immediately
+  const [liveAuthStatus, setLiveAuthStatus] = React.useState(props.authStatus);
+
+  // Show workspace key input when W is pressed and no key is configured yet
+  const workspaceKeyMissing = liveAuthStatus !== undefined && !liveAuthStatus.workspaceKey.set;
+  useInput(
+    (input: string) => {
+      if ((input === 'w' || input === 'W') && workspaceKeyMissing && !showWorkspaceKeyInput) {
+        setShowWorkspaceKeyInput(true);
+      }
+    },
+    { isActive: !showWorkspaceKeyInput },
+  );
+
+  const handleWorkspaceKeySaved = React.useCallback(() => {
+    // Re-snapshot auth status so the UI reflects the newly saved key immediately
+    const { getAuthStatus } = require('./getAuthStatus.js') as typeof import('./getAuthStatus.js');
+    setLiveAuthStatus(getAuthStatus());
+    setShowWorkspaceKeyInput(false);
+  }, []);
+
+  const handleWorkspaceKeyCancel = React.useCallback(() => {
+    setShowWorkspaceKeyInput(false);
+  }, []);
 
   return (
     <Dialog
@@ -89,12 +115,27 @@ export function Login(props: {
       }
     >
       <Box flexDirection="column">
-        {props.authStatus !== undefined && (
+        {liveAuthStatus !== undefined && (
           <Box marginBottom={1}>
-            <AuthPlaneSummary status={props.authStatus} />
+            <AuthPlaneSummary status={liveAuthStatus} />
           </Box>
         )}
-        <ConsoleOAuthFlow onDone={() => props.onDone(true, mainLoopModel)} startingMessage={props.startingMessage} />
+
+        {showWorkspaceKeyInput ? (
+          <WorkspaceKeyInputContainer onSaved={handleWorkspaceKeySaved} onCancel={handleWorkspaceKeyCancel} />
+        ) : (
+          <>
+            {workspaceKeyMissing && (
+              <Box marginBottom={1}>
+                <Text dimColor>Press W to enter workspace API key (saves to settings, no restart needed)</Text>
+              </Box>
+            )}
+            <ConsoleOAuthFlow
+              onDone={() => props.onDone(true, mainLoopModel)}
+              startingMessage={props.startingMessage}
+            />
+          </>
+        )}
       </Box>
     </Dialog>
   );

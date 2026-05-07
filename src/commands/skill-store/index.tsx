@@ -1,3 +1,4 @@
+import { getGlobalConfig } from '../../utils/config.js';
 import type { Command } from '../../types/command.js';
 
 const skillStoreCommand: Command = {
@@ -8,9 +9,9 @@ const skillStoreCommand: Command = {
     'Browse and install remote skills from the Anthropic skill marketplace. Requires Claude Pro/Max/Team subscription.',
   argumentHint:
     'list | get <id> | versions <id> | version <id> <ver> | create <name> <markdown> | delete <id> | install <id>[@<version>]',
-  // Visible when ANTHROPIC_API_KEY is configured (workspace-scoped key required).
+  // Visible when a workspace API key is available from env or saved settings.
   // /v1/skills 404s on the subscription plane (probed 2026-05-03).
-  isHidden: !process.env['ANTHROPIC_API_KEY'],
+  isHidden: !process.env['ANTHROPIC_API_KEY'] && !getGlobalConfig().workspaceApiKey,
   isEnabled: () => true,
   bridgeSafe: false,
   availability: ['claude-ai'],
