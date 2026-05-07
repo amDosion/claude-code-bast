@@ -1,69 +1,96 @@
-import type { Command, LocalCommandResult } from '../types/command.js'
-import { getGlobalConfig } from '../utils/config.js'
+import type { Command, LocalCommandResult } from '../types/command.js';
+import {
+  getInitialSettings,
+  updateSettingsForSource,
+} from '../utils/settings/settings.js';
 
 /**
- * /statusline — show what the fork's built-in status line is currently
- * displaying, and explain the (optional) shell-command second row.
+ * /statusline — toggle the fork's built-in status line (BuiltinStatusLine +
+ * CachePill).
  *
  * Was a prompt-type wrapper that spawned the upstream `statusline-setup`
- * agent to read your shell PS1 and write `settings.statusLine.command`.
- * The fork now ships `BuiltinStatusLine` + `CachePill` as React components
- * inside `StatusLine.tsx` — they render unconditionally, so the agent step
- * is redundant. This command was changed to a pure-local status report:
- * no LLM call, no agent spawn.
+ * agent to scrape PS1 and write `settings.statusLine.command`. The fork ships
+ * its own React rendering, so the agent step was redundant. Replaced with a
+ * pure-local toggle that flips `statusLineEnabled` in user settings.
  *
- * Configuring a custom bottom-row shell command is still supported — just
- * edit `~/.claude/settings.json` directly (`statusLine.command`).
+ * - Default state: off (no row rendered).
+ * - `/statusline`        → toggle (off → on, on → off).
+ * - `/statusline on`     → force on.
+ * - `/statusline off`    → force off.
+ *
+ * The optional bottom-row shell command (`settings.statusLine.command`) is
+ * still loaded when present and the top row is enabled. Configure it by
+ * editing `~/.claude/settings.json` directly.
  */
 
-function formatStatusLineState(): string {
-  const cfg = getGlobalConfig() as { statusLine?: { type?: string; command?: string } }
-  const command = cfg.statusLine?.command
-  const hasCommand = typeof command === 'string' && command.trim().length > 0
+function parseDesired(args: string, current: boolean): boolean {
+  const trimmed = args.trim().toLowerCase();
+  if (trimmed === 'on' || trimmed === 'enable' || trimmed === 'true') return true;
+  if (trimmed === 'off' || trimmed === 'disable' || trimmed === 'false') return false;
+  return !current;
+}
 
-  const lines: string[] = []
-
-  lines.push('## Status line state')
-  lines.push('')
-  lines.push('**Top row (always on, fork built-in):**')
-  lines.push('  • model name + Context % + Session/Weekly limits + cost')
-  lines.push('  • Cache hit-rate + 1h TTL countdown pill')
-  lines.push('  Source: `src/components/BuiltinStatusLine.tsx` + `CachePill` in `StatusLine.tsx`')
-  lines.push('')
-  lines.push('**Bottom row (optional, shell stdout):**')
+function describeBottomRow(settings: ReturnType<typeof getInitialSettings>): string[] {
+  const command = settings.statusLine?.command;
+  const hasCommand = typeof command === 'string' && command.trim().length > 0;
   if (hasCommand) {
-    lines.push(`  • Active. Command: \`${command}\``)
-    lines.push('  • Claude pipes a JSON payload (model, workspace, cost, context_window, rate_limits) to stdin and renders one line of stdout.')
-  } else {
-    lines.push('  • Inactive — no `statusLine.command` configured.')
-    lines.push('  • To enable, add to `~/.claude/settings.json`:')
-    lines.push('    ```json')
-    lines.push('    "statusLine": {')
-    lines.push('      "type": "command",')
-    lines.push('      "command": "/path/to/your/script.sh"')
-    lines.push('    }')
-    lines.push('    ```')
-    lines.push('  • The script reads JSON from stdin and prints one line to stdout.')
+    return [
+      `  • Bottom row (shell): active. Command: \`${command}\``,
+      '  • Disable by removing `statusLine.command` in `~/.claude/settings.json`.',
+    ];
   }
-  lines.push('')
-  lines.push('_The legacy upstream behavior of `/statusline` (spawn `statusline-setup` agent to read your shell PS1) was removed because the React top row already covers the same information without any configuration._')
-
-  return lines.join('\n')
+  return [
+    '  • Bottom row (shell): not configured.',
+    '  • Optional — to enable, add to `~/.claude/settings.json`:',
+    '    `"statusLine": { "type": "command", "command": "/path/to/script.sh" }`',
+  ];
 }
 
 const statusline: Command = {
   type: 'local',
   name: 'statusline',
-  description: "Show Claude Code's status line state (top row is always on; bottom shell row is optional)",
+  description: "Toggle Claude Code's built-in status line (top row: model + ctx + limits + cost + cache pill)",
+  argumentHint: '[on|off]',
   isHidden: false,
   isEnabled: () => true,
   supportsNonInteractive: true,
   load: async () => ({
-    call: async (): Promise<LocalCommandResult> => ({
-      type: 'text',
-      value: formatStatusLineState(),
-    }),
-  }),
-}
+    call: async (args: string): Promise<LocalCommandResult> => {
+      const before = getInitialSettings();
+      const current = before.statusLineEnabled === true;
+      const next = parseDesired(args, current);
 
-export default statusline
+      if (next === current) {
+        const lines = [
+          `Status line is already **${next ? 'on' : 'off'}**.`,
+          '',
+          ...describeBottomRow(before),
+        ];
+        return { type: 'text', value: lines.join('\n') };
+      }
+
+      const { error } = updateSettingsForSource('userSettings', {
+        statusLineEnabled: next,
+      });
+      if (error) {
+        return {
+          type: 'text',
+          value: `Failed to update settings: ${error.message}`,
+        };
+      }
+
+      const after = getInitialSettings();
+      const lines = [
+        `Status line **${next ? 'enabled' : 'disabled'}**${current === next ? '' : ' (was ' + (current ? 'on' : 'off') + ')'}`,
+        '',
+        '**Top row** (fork built-in): model + Context % + Session/Weekly limits + cost + Cache hit-rate pill.',
+        ...describeBottomRow(after),
+        '',
+        '_Settings written to `~/.claude/settings.json` (`statusLineEnabled`)._',
+      ];
+      return { type: 'text', value: lines.join('\n') };
+    },
+  }),
+};
+
+export default statusline;

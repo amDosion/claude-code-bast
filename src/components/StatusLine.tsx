@@ -160,14 +160,10 @@ export function statusLineShouldDisplay(settings: ReadonlySettings): boolean {
   // Assistant mode: statusline fields (model, permission mode, cwd) reflect the
   // REPL/daemon process, not what the agent child is actually running. Hide it.
   if (feature('KAIROS') && getKairosActive()) return false;
-  // Always render: the built-in BuiltinStatusLine + CachePill are React
-  // components owned by the fork — they don't need any settings.statusLine
-  // entry to function. The optional shell-stdout row inside StatusLine still
-  // gates itself on a non-empty statusLineText, so users without a configured
-  // command get just the top row. Reference: settings reads still happen
-  // inside StatusLine for the (optional) command path.
-  void settings;
-  return true;
+  // Render only when the user has explicitly toggled it on via `/statusline`.
+  // Default off keeps the REPL clean for users who don't want the extra row;
+  // /statusline flips `statusLineEnabled` in settings.json.
+  return settings?.statusLineEnabled === true;
 }
 
 function buildStatusLineCommandInput(

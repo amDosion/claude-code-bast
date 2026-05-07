@@ -558,6 +558,14 @@ export const SettingsSchema = lazySchema(() =>
         })
         .optional()
         .describe('Custom status line display configuration'),
+      // Toggle for the fork's built-in status line (BuiltinStatusLine + CachePill).
+      // Toggled by the /statusline command. Default false → no rendering.
+      statusLineEnabled: z
+        .boolean()
+        .optional()
+        .describe(
+          'Whether to render the fork built-in status line (model + ctx + 5h/7d limits + cost + cache pill). Toggled with /statusline.',
+        ),
       // Enabled plugins using marketplace-first format
       enabledPlugins: z
         .record(
