@@ -10,8 +10,13 @@ const skillStoreCommand: Command = {
   argumentHint:
     'list | get <id> | versions <id> | version <id> <ver> | create <name> <markdown> | delete <id> | install <id>[@<version>]',
   // Visible when a workspace API key is available from env or saved settings.
-  // /v1/skills 404s on the subscription plane (probed 2026-05-03).
-  isHidden: !process.env['ANTHROPIC_API_KEY'] && !getGlobalConfig().workspaceApiKey,
+  // Use a getter so getGlobalConfig() runs lazily (after enableConfigs())
+  // instead of at module-load time, which races bootstrap and throws.
+  get isHidden(): boolean {
+    return (
+      !process.env['ANTHROPIC_API_KEY'] && !getGlobalConfig().workspaceApiKey
+    );
+  },
   isEnabled: () => true,
   bridgeSafe: false,
   availability: ['claude-ai'],
