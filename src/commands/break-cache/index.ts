@@ -125,7 +125,9 @@ const USAGE_TEXT = [
   '  This is useful when you want to ensure a clean context window.',
 ].join('\n')
 
-export async function callBreakCache(args: string): Promise<LocalCommandResult> {
+export async function callBreakCache(
+  args: string,
+): Promise<LocalCommandResult> {
   const scope = args.trim().toLowerCase()
   const markerPath = getBreakCacheMarkerPath()
   const alwaysPath = getBreakCacheAlwaysPath()
@@ -176,7 +178,7 @@ export async function callBreakCache(args: string): Promise<LocalCommandResult> 
       unlinkSync(markerPath)
       return {
         type: 'text',
-        value: `Cache-break marker cleared.\n  ${markerPath}`,
+        value: `Cache-break marker cleared.\n  \`${markerPath}\``,
       }
     }
     return {
@@ -194,7 +196,7 @@ export async function callBreakCache(args: string): Promise<LocalCommandResult> 
       value: [
         '## Always-on cache break enabled',
         '',
-        `Flag written: ${alwaysPath}`,
+        `Flag written: \`${alwaysPath}\``,
         '',
         'Every API call will now append a random nonce to the system prompt,',
         'permanently preventing prompt-cache hits for this session.',
@@ -216,7 +218,7 @@ export async function callBreakCache(args: string): Promise<LocalCommandResult> 
       value: [
         '## Cache break scheduled',
         '',
-        `Marker written: ${markerPath}`,
+        `Marker written: \`${markerPath}\``,
         `Timestamp: ${timestamp}`,
         '',
         'The next API call will append a random nonce to the system prompt,',
@@ -250,7 +252,9 @@ const breakCache: Command = {
   argumentHint: '[once|status|always|off|--clear]',
   bridgeSafe: true,
   getBridgeInvocationError: args =>
-    args.trim() ? undefined : 'Use /break-cache once/status/always/off over Remote Control.',
+    args.trim()
+      ? undefined
+      : 'Use /break-cache once/status/always/off over Remote Control.',
   load: () => import('./panel.js'),
 }
 

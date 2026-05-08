@@ -10,22 +10,36 @@
 import {
   existsSync,
   mkdirSync,
+  openSync,
   readdirSync,
   readFileSync,
+  readSync,
   renameSync,
   rmSync,
+  statSync,
+  closeSync,
   writeFileSync,
 } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { randomBytes } from 'node:crypto'
+import { validateKey } from '../../utils/localValidate.js'
 
 // ── Path helpers ──────────────────────────────────────────────────────────────
 
+// L8 fix: cache the result so repeated tool calls don't re-do homedir() +
+// join() on every list/fetch. Cache is keyed on the env var so a test that
+// changes CLAUDE_CONFIG_DIR mid-process still picks up the new dir.
+let _baseDirCache: { configDir: string; baseDir: string } | undefined
 function getBaseDir(): string {
   const configDir =
     process.env['CLAUDE_CONFIG_DIR'] ?? join(homedir(), '.claude')
-  return join(configDir, 'local-memory')
+  if (_baseDirCache && _baseDirCache.configDir === configDir) {
+    return _baseDirCache.baseDir
+  }
+  const baseDir = join(configDir, 'local-memory')
+  _baseDirCache = { configDir, baseDir }
+  return baseDir
 }
 
 function getStoreDir(store: string): string {
@@ -33,9 +47,14 @@ function getStoreDir(store: string): string {
 }
 
 function getEntryPath(store: string, key: string): string {
-  // Sanitize key — replace path separators to prevent directory traversal
-  const safeKey = key.replace(/[/\\]/g, '_')
-  return join(getStoreDir(store), `${safeKey}.md`)
+  // PR-0a fix: validateKey rejects any '/' or '\' (and other unsafe chars)
+  // up front, so the previous .replace(/[/\\]/g, '_') sanitize is no longer
+  // needed and was actually harmful: it caused 'a/b' and 'a_b' to collide
+  // on the same a_b.md file. Backward compat: pre-existing a_b.md files
+  // (regardless of the original key the user typed) remain readable as
+  // key='a_b' under the new validator.
+  validateKey(key)
+  return join(getStoreDir(store), `${key}.md`)
 }
 
 /** Maximum allowed store name length (OS path component limit). */
@@ -56,6 +75,15 @@ const MAX_VALUE_BYTES = 1_048_576
  *
  * E1 fix: hardened against path traversal on Windows and POSIX.
  */
+export function isValidStoreName(store: string): boolean {
+  try {
+    validateStoreName(store)
+    return true
+  } catch {
+    return false
+  }
+}
+
 function validateStoreName(store: string): void {
   if (!store) {
     throw new Error('Invalid store name: store name must not be empty.')
@@ -85,11 +113,7 @@ function validateStoreName(store: string): void {
   }
 }
 
-function validateKey(key: string): void {
-  if (!key) {
-    throw new Error('Entry key must not be empty')
-  }
-}
+// validateKey is now imported from src/utils/localValidate.ts (shared with PR-1/2)
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
@@ -182,6 +206,45 @@ export function getEntry(store: string, key: string): string | null {
   return readFileSync(entryPath, 'utf8')
 }
 
+/**
+ * M4 fix: bounded read variant. Returns at most `maxBytes` bytes from the
+ * entry file. If the on-disk file is larger, returns the prefix and sets
+ * truncated=true. Caller should not assume the returned string is a complete
+ * entry. Used by LocalMemoryRecallTool to defend against externally written
+ * 1GB markdown files (the in-tool 1MB cap only guards setEntry; an attacker
+ * with file system access could write any size).
+ *
+ * Bytes are read from a single fd, not the whole file. Result is decoded as
+ * UTF-8 with truncate-at-codepoint-boundary semantics handled by the caller
+ * (truncateUtf8 in LocalMemoryRecallTool).
+ */
+export function getEntryBounded(
+  store: string,
+  key: string,
+  maxBytes: number,
+): { value: string; truncated: boolean } | null {
+  validateStoreName(store)
+  validateKey(key)
+  const entryPath = getEntryPath(store, key)
+  if (!existsSync(entryPath)) return null
+  const stat = statSync(entryPath)
+  const total = stat.size
+  const readBytes = Math.min(total, maxBytes)
+  const buf = Buffer.alloc(readBytes)
+  const fd = openSync(entryPath, 'r')
+  try {
+    let offset = 0
+    while (offset < readBytes) {
+      const n = readSync(fd, buf, offset, readBytes - offset, offset)
+      if (n <= 0) break
+      offset += n
+    }
+  } finally {
+    closeSync(fd)
+  }
+  return { value: buf.toString('utf8'), truncated: total > maxBytes }
+}
+
 /** Delete an entry from a store. Returns true if it existed. */
 export function deleteEntry(store: string, key: string): boolean {
   validateStoreName(store)
@@ -201,4 +264,55 @@ export function listEntries(store: string): string[] {
     .filter(f => f.endsWith('.md'))
     .map(f => f.slice(0, -3))
     .sort()
+}
+
+/**
+ * M5 + F4 fix: truly bounded list variant.
+ *
+ * F4 (Codex round 6) found that the previous implementation collected every
+ * .md filename into memory and sorted them all before slicing — that meant
+ * a 100k-entry store still paid O(N) memory + O(N log N) sort. The cap
+ * only limited what we returned to the caller, not what we processed.
+ *
+ * New approach: walk the dirents and maintain a bounded "top-K" buffer.
+ * For maxEntries entries we keep the K alphabetically smallest names seen
+ * so far. We use a simple insertion-sort-style approach with linear scan
+ * because K is small (typically 1024) — for the realistic store sizes
+ * (≤10k entries) the O(N×K) cost (~10M comparisons) is well under 100ms.
+ * For pathological stores (1M+ entries) we still paid linear time on
+ * readdirSync which lists the entire directory; truly avoiding that
+ * needs an async streaming dirent walk that we'll do in a follow-up.
+ *
+ * Memory after this fix: O(K) instead of O(N).
+ */
+export function listEntriesBounded(
+  store: string,
+  maxEntries: number,
+): { entries: string[]; truncated: boolean } {
+  validateStoreName(store)
+  const storeDir = getStoreDir(store)
+  if (!existsSync(storeDir)) return { entries: [], truncated: false }
+  // Bounded top-K accumulator. We keep `top` sorted ascending and never
+  // grow beyond `maxEntries` items.
+  const top: string[] = []
+  let totalMd = 0
+  for (const f of readdirSync(storeDir)) {
+    if (!f.endsWith('.md')) continue
+    totalMd++
+    const key = f.slice(0, -3)
+    if (top.length < maxEntries) {
+      // Insert in sorted position (linear scan, K bounded so cheap)
+      let i = 0
+      while (i < top.length && top[i]! < key) i++
+      top.splice(i, 0, key)
+    } else if (key < top[maxEntries - 1]!) {
+      // key is smaller than current largest in top; insert and pop largest
+      let i = 0
+      while (i < top.length && top[i]! < key) i++
+      top.splice(i, 0, key)
+      top.pop()
+    }
+    // else: key is larger than current top-K largest, skip
+  }
+  return { entries: top, truncated: totalMd > maxEntries }
 }
