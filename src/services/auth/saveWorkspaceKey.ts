@@ -90,6 +90,28 @@ export async function saveWorkspaceKey(key: string): Promise<void> {
 }
 
 /**
+ * Remove the workspace API key from settings.
+ * Does NOT touch the ANTHROPIC_API_KEY env var (that's session-scoped).
+ *
+ * After this, getEffectiveWorkspaceApiKey() will fall through to the env
+ * var if any, otherwise return undefined.
+ */
+export async function removeWorkspaceKey(): Promise<void> {
+  try {
+    saveGlobalConfig(current => {
+      // Strip the field; setting undefined preserves other properties.
+      const next = { ...current }
+      delete (next as { workspaceApiKey?: string }).workspaceApiKey
+      return next
+    })
+  } catch (err: unknown) {
+    throw new Error(
+      `Failed to remove workspace API key: ${sanitizeErrorMessage(err)}`,
+    )
+  }
+}
+
+/**
  * Returns the effective workspace API key from the two-source chain:
  *   1. ANTHROPIC_API_KEY env var (takes precedence)
  *   2. workspaceApiKey from ~/.claude.json

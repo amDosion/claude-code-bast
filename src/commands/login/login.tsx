@@ -21,6 +21,7 @@ import { resetUserCache } from '../../utils/user.js';
 import { AuthPlaneSummary } from './AuthPlaneSummary.js';
 import { getAuthStatus } from './getAuthStatus.js';
 import { WorkspaceKeyInputContainer } from './WorkspaceKeyInput.js';
+import { removeWorkspaceKey } from '../../services/auth/saveWorkspaceKey.js';
 
 export async function call(onDone: LocalJSXCommandOnDone, context: LocalJSXCommandContext): Promise<React.ReactNode> {
   // Snapshot auth state once at call time (pure, no network)
@@ -76,26 +77,64 @@ export function Login(props: {
 }): React.ReactNode {
   const mainLoopModel = useMainLoopModel();
   const [showWorkspaceKeyInput, setShowWorkspaceKeyInput] = React.useState(false);
-  // Re-snapshot auth status after a key is saved so the row updates immediately
+  // 'idle' | 'confirm-remove' | 'removing' | { error: string }
+  const [removeState, setRemoveState] = React.useState<
+    { phase: 'idle' } | { phase: 'confirm-remove' } | { phase: 'removing' } | { phase: 'error'; message: string }
+  >({ phase: 'idle' });
+  // Re-snapshot auth status after a key is saved/removed so the row updates immediately
   const [liveAuthStatus, setLiveAuthStatus] = React.useState(props.authStatus);
 
-  // Show workspace key input when W is pressed and no key is configured yet
-  const workspaceKeyMissing = liveAuthStatus !== undefined && !liveAuthStatus.workspaceKey.set;
+  const workspaceKeySet = liveAuthStatus !== undefined && liveAuthStatus.workspaceKey.set;
+  // Source distinguishes env-var (cannot be deleted from UI) vs settings-saved
+  const workspaceKeyFromSettings = workspaceKeySet && liveAuthStatus.workspaceKey.source === 'settings';
+
+  const refreshLiveStatus = React.useCallback(() => {
+    const { getAuthStatus } = require('./getAuthStatus.js') as typeof import('./getAuthStatus.js');
+    setLiveAuthStatus(getAuthStatus());
+  }, []);
+
+  // W = enter/replace key; D = delete (only when stored in settings)
   useInput(
     (input: string) => {
-      if ((input === 'w' || input === 'W') && workspaceKeyMissing && !showWorkspaceKeyInput) {
+      if (showWorkspaceKeyInput) return;
+      if (removeState.phase === 'confirm-remove') {
+        if (input === 'y' || input === 'Y') {
+          setRemoveState({ phase: 'removing' });
+          void (async () => {
+            try {
+              await removeWorkspaceKey();
+              refreshLiveStatus();
+              setRemoveState({ phase: 'idle' });
+            } catch (err) {
+              setRemoveState({
+                phase: 'error',
+                message: err instanceof Error ? err.message : 'Failed to remove workspace API key',
+              });
+            }
+          })();
+          return;
+        }
+        if (input === 'n' || input === 'N') {
+          setRemoveState({ phase: 'idle' });
+          return;
+        }
+        return;
+      }
+      if (input === 'w' || input === 'W') {
         setShowWorkspaceKeyInput(true);
+        return;
+      }
+      if ((input === 'd' || input === 'D') && workspaceKeyFromSettings) {
+        setRemoveState({ phase: 'confirm-remove' });
       }
     },
     { isActive: !showWorkspaceKeyInput },
   );
 
   const handleWorkspaceKeySaved = React.useCallback(() => {
-    // Re-snapshot auth status so the UI reflects the newly saved key immediately
-    const { getAuthStatus } = require('./getAuthStatus.js') as typeof import('./getAuthStatus.js');
-    setLiveAuthStatus(getAuthStatus());
+    refreshLiveStatus();
     setShowWorkspaceKeyInput(false);
-  }, []);
+  }, [refreshLiveStatus]);
 
   const handleWorkspaceKeyCancel = React.useCallback(() => {
     setShowWorkspaceKeyInput(false);
@@ -123,13 +162,27 @@ export function Login(props: {
 
         {showWorkspaceKeyInput ? (
           <WorkspaceKeyInputContainer onSaved={handleWorkspaceKeySaved} onCancel={handleWorkspaceKeyCancel} />
+        ) : removeState.phase === 'confirm-remove' || removeState.phase === 'removing' ? (
+          <Box flexDirection="column" marginBottom={1}>
+            <Text>
+              Remove the saved workspace API key? <Text dimColor>(settings.json only — env var is unaffected)</Text>
+            </Text>
+            <Text dimColor>{removeState.phase === 'removing' ? 'Removing…' : 'Press Y to confirm, N to cancel'}</Text>
+          </Box>
         ) : (
           <>
-            {workspaceKeyMissing && (
-              <Box marginBottom={1}>
+            <Box flexDirection="column" marginBottom={1}>
+              {!workspaceKeySet ? (
                 <Text dimColor>Press W to enter workspace API key (saves to settings, no restart needed)</Text>
-              </Box>
-            )}
+              ) : workspaceKeyFromSettings ? (
+                <Text dimColor>Press W to replace workspace API key · Press D to remove it</Text>
+              ) : (
+                <Text dimColor>
+                  Workspace API key from ANTHROPIC_API_KEY env. Press W to override with a settings-saved key.
+                </Text>
+              )}
+              {removeState.phase === 'error' && <Text color="error">{removeState.message}</Text>}
+            </Box>
             <ConsoleOAuthFlow
               onDone={() => props.onDone(true, mainLoopModel)}
               startingMessage={props.startingMessage}
