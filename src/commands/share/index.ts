@@ -306,7 +306,7 @@ const share: Command = {
             '## Session log not found',
             '',
             `Session: ${sessionId}`,
-            `Expected path: ${logPath}`,
+            `Expected path: \`${logPath}\``,
             '',
             'The session log may not have been written yet. Try sending at least one message first.',
           ].join('\n'),
@@ -325,13 +325,13 @@ const share: Command = {
             '## Share session log',
             '',
             `Session: ${sessionId}`,
-            `Log file: ${logPath}`,
+            `Log file: \`${logPath}\``,
             '',
             'To upload to GitHub Gist automatically, install the `gh` CLI:',
             '  https://cli.github.com/',
             '',
             'Then run:',
-            `  gh gist create "${logPath}" --secret --filename claude-session.jsonl`,
+            `  \`gh gist create "${logPath}" --secret --filename claude-session.jsonl\``,
             '',
             'Or use `--allow-public-fallback` to upload to 0x0.st instead.',
             '',
@@ -434,7 +434,7 @@ const share: Command = {
             hasGh
               ? 'Make sure you are logged in: `gh auth login`'
               : 'Install the `gh` CLI: https://cli.github.com/',
-            `Log file: ${logPath}`,
+            `Log file: \`${logPath}\``,
           ].join('\n'),
         }
       } finally {

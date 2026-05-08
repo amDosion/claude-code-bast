@@ -48,6 +48,7 @@ import {
   type BackgroundRemoteSessionPrecondition,
 } from 'src/tasks/RemoteAgentTask/RemoteAgentTask.js'
 import { assembleToolPool } from 'src/tools.js'
+import { filterParentToolsForFork } from 'src/utils/agentToolFilter.js'
 import { asAgentId } from 'src/types/ids.js'
 import { runWithAgentContext, type SubagentContext } from 'src/utils/agentContext.js'
 import { isAgentSwarmsEnabled } from 'src/utils/agentSwarmsEnabled.js'
@@ -903,7 +904,9 @@ export const AgentTool = buildTool({
         : enhancedSystemPrompt && !worktreeInfo && !cwd
           ? { systemPrompt: asSystemPrompt(enhancedSystemPrompt) }
           : undefined,
-      availableTools: isForkPath ? toolUseContext.options.tools : workerTools,
+      availableTools: isForkPath
+        ? filterParentToolsForFork(toolUseContext.options.tools)
+        : workerTools,
       // Pass parent conversation when the fork-subagent path needs full
       // context. useExactTools inherits thinkingConfig (runAgent.ts:624).
       forkContextMessages: isForkPath ? toolUseContext.messages : undefined,

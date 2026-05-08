@@ -10,7 +10,8 @@ const agentsPlatform: Command = {
   name: 'agents-platform',
   aliases: ['agents', 'schedule-agent'],
   description: 'Manage scheduled remote agents (cron-style triggers)',
-  argumentHint: 'list | create <cron> <prompt> | delete <id> | run <id>',
+  // REPL markdown renderer strips `<...>` as HTML tags — use uppercase.
+  argumentHint: 'list | create CRON PROMPT | delete ID | run ID',
   get isHidden(): boolean {
     return (
       !process.env['ANTHROPIC_API_KEY'] && !getGlobalConfig().workspaceApiKey

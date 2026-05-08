@@ -83,7 +83,7 @@ describe('perf-issue command', () => {
     const result = await loaded.call('', {} as never)
     if (result.type === 'text') {
       // Extract the path from the result message
-      const pathMatch = result.value.match(/\n\s+(\S+\.md)/)
+      const pathMatch = result.value.match(/\n\s+`?(\S+?\.md)`?/)
       if (pathMatch) {
         const reportContent = readFileSync(pathMatch[1], 'utf8')
         expect(reportContent).toContain('Snapshot')
@@ -305,7 +305,7 @@ describe('perf-issue command', () => {
     const result = await loaded.call('--format=json', {} as never)
     expect(result.type).toBe('text')
     if (result.type === 'text') {
-      const pathMatch = result.value.match(/\n\s+(\S+\.json)/)
+      const pathMatch = result.value.match(/\n\s+`?(\S+?\.json)`?/)
       if (pathMatch) {
         const { readFileSync } = await import('node:fs')
         const content = readFileSync(pathMatch[1], 'utf8')
@@ -349,7 +349,7 @@ describe('perf-issue command', () => {
     const result = await loaded.call('--format=csv', {} as never)
     expect(result.type).toBe('text')
     if (result.type === 'text') {
-      const pathMatch = result.value.match(/\n\s+(\S+\.csv)/)
+      const pathMatch = result.value.match(/\n\s+`?(\S+?\.csv)`?/)
       if (pathMatch) {
         const { readFileSync } = await import('node:fs')
         const content = readFileSync(pathMatch[1], 'utf8')
@@ -395,7 +395,7 @@ describe('perf-issue command', () => {
     ).load()
     const result = await loaded.call('', {} as never)
     if (result.type === 'text') {
-      const pathMatch = result.value.match(/\n\s+(\S+\.md)/)
+      const pathMatch = result.value.match(/\n\s+`?(\S+?\.md)`?/)
       if (pathMatch) {
         const { readFileSync } = await import('node:fs')
         const content = readFileSync(pathMatch[1], 'utf8')
@@ -450,7 +450,7 @@ describe('perf-issue command', () => {
     const result = await loaded.call('--format=json', {} as never)
     expect(result.type).toBe('text')
     if (result.type === 'text') {
-      const pathMatch = result.value.match(/\n\s+(\S+\.json)/)
+      const pathMatch = result.value.match(/\n\s+`?(\S+?\.json)`?/)
       if (pathMatch) {
         const { readFileSync } = await import('node:fs')
         const parsed = JSON.parse(readFileSync(pathMatch[1], 'utf8'))
@@ -499,7 +499,7 @@ describe('perf-issue command', () => {
     const result = await loaded.call('--format=json', {} as never)
     expect(result.type).toBe('text')
     if (result.type === 'text') {
-      const pathMatch = result.value.match(/\n\s+(\S+\.json)/)
+      const pathMatch = result.value.match(/\n\s+`?(\S+?\.json)`?/)
       if (pathMatch) {
         const { readFileSync } = await import('node:fs')
         const parsed = JSON.parse(readFileSync(pathMatch[1], 'utf8'))
@@ -543,7 +543,7 @@ describe('perf-issue command', () => {
     ).load()
     const result = await loaded.call('--format=json', {} as never)
     if (result.type === 'text') {
-      const pathMatch = result.value.match(/\n\s+(\S+\.json)/)
+      const pathMatch = result.value.match(/\n\s+`?(\S+?\.json)`?/)
       if (pathMatch) {
         const { readFileSync } = await import('node:fs')
         const parsed = JSON.parse(readFileSync(pathMatch[1], 'utf8'))
@@ -626,7 +626,7 @@ describe('perf-issue command', () => {
     // --limit 3 should only analyze last 3 lines (30 tokens)
     const result = await loaded.call('--format=json --limit 3', {} as never)
     if (result.type === 'text') {
-      const pathMatch = result.value.match(/\n\s+(\S+\.json)/)
+      const pathMatch = result.value.match(/\n\s+`?(\S+?\.json)`?/)
       if (pathMatch) {
         const { readFileSync } = await import('node:fs')
         const parsed = JSON.parse(readFileSync(pathMatch[1], 'utf8'))

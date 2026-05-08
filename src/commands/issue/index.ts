@@ -390,7 +390,7 @@ const issue: Command = {
           lines.push(`Open in browser:\n${url}`)
           if (draftPath) {
             lines.push('')
-            lines.push(`Full issue body saved to:\n  ${draftPath}`)
+            lines.push(`Full issue body saved to:\n  \`${draftPath}\``)
           }
         } else {
           lines.push('No GitHub remote detected in this directory.')

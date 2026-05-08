@@ -140,7 +140,7 @@ const debugToolCall: Command = {
           value: [
             '## Debug Tool Calls',
             '',
-            `Log file not found: ${logPath}`,
+            `Log file not found: \`${logPath}\``,
             '',
             'No tool calls to show — the session log has not been created yet.',
           ].join('\n'),
@@ -156,7 +156,7 @@ const debugToolCall: Command = {
           value: [
             '## Debug Tool Calls',
             '',
-            `No tool call pairs found in session log (${logPath}).`,
+            `No tool call pairs found in session log: \`${logPath}\``,
             '',
             'Tool calls appear after the model invokes a tool and receives a result.',
           ].join('\n'),

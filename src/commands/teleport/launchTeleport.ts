@@ -165,7 +165,7 @@ export const callTeleport: LocalJSXCommandCall = async (
         error: meta(msg.slice(0, 200)),
       })
       onDone(
-        `Teleport: failed to fetch sessions — ${msg}.\nUsage: /teleport <session-id>`,
+        `Teleport: failed to fetch sessions — ${msg}.\nUsage: /teleport SESSION_ID`,
         { display: 'system' },
       )
       return null

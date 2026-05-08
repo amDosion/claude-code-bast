@@ -2,12 +2,14 @@ import React from 'react';
 import { Box, Dialog, Text, useInput } from '@anthropic/ink';
 import type { LocalJSXCommandCall } from '../../types/command.js';
 import { setSecret, getSecret, deleteSecret, listKeys, maskSecret } from '../../services/localVault/store.js';
+import { isValidKey } from '../../utils/localValidate.js';
+import TextInput from '../../components/TextInput.js';
 import { LocalVaultView } from './LocalVaultView.js';
 import { parseLocalVaultArgs } from './parseArgs.js';
 import { launchCommand } from '../_shared/launchCommand.js';
 import type { LocalJSXCommandOnDone } from '../../types/command.js';
 
-const USAGE = 'Usage: /local-vault list | set <key> <value> | get <key> [--reveal] | delete <key>';
+const USAGE = 'Usage: /local-vault list | set KEY VALUE | get KEY [--reveal] | delete KEY';
 
 type LocalVaultViewProps = React.ComponentProps<typeof LocalVaultView>;
 
@@ -26,96 +28,321 @@ function formatKeyList(keys: string[]): string {
   return ['Local Vault Keys', ...keys.map(key => `- ${key}`)].join('\n');
 }
 
-function LocalVaultPanel({
-  onDone,
-}: {
-  onDone: LocalJSXCommandOnDone;
-}): React.ReactNode {
+// ── Interactive multi-step panel ───────────────────────────────────────────
+// Vault state machine:
+//   menu               — pick action
+//   collect-key        — KEY name (Set/Get/Delete)
+//   collect-value      — secret VALUE (Set only; masked input)
+//   confirm-overwrite  — Y/N when key exists (Set)
+//   confirm-delete     — Y/N (Delete)
+
+type VaultActionKind = 'list' | 'set' | 'get' | 'delete' | 'about';
+
+type VaultStep =
+  | { kind: 'menu' }
+  | { kind: 'collect-key'; action: VaultActionKind }
+  | { kind: 'collect-value'; key: string }
+  | { kind: 'confirm-overwrite'; key: string; value: string }
+  | { kind: 'confirm-delete'; key: string };
+
+const VAULT_MENU: Array<{
+  kind: VaultActionKind;
+  label: string;
+  description: string;
+}> = [
+  { kind: 'list', label: 'List', description: 'Show stored secret keys' },
+  {
+    kind: 'set',
+    label: 'Set',
+    description: 'Store a secret: KEY + VALUE (input is masked)',
+  },
+  {
+    kind: 'get',
+    label: 'Get',
+    description: 'Look up a secret (returns masked preview)',
+  },
+  {
+    kind: 'delete',
+    label: 'Delete',
+    description: 'Delete a stored secret by KEY',
+  },
+  {
+    kind: 'about',
+    label: 'About',
+    description: 'Show command syntax',
+  },
+];
+
+function LocalVaultPanel({ onDone }: { onDone: LocalJSXCommandOnDone }): React.ReactNode {
+  const [step, setStep] = React.useState<VaultStep>({ kind: 'menu' });
   const [selectedIndex, setSelectedIndex] = React.useState(0);
-  const actions = React.useMemo<LocalVaultAction[]>(
-    () => [
-      {
-        label: 'List',
-        description: 'Show stored secret keys without values',
-        run: () => {
+  const [textValue, setTextValue] = React.useState('');
+  const [cursorOffset, setCursorOffset] = React.useState(0);
+  const [error, setError] = React.useState<string | null>(null);
+  const [inFlight, setInFlight] = React.useState(false);
+
+  const transition = React.useCallback((next: VaultStep) => {
+    setStep(next);
+    setTextValue('');
+    setCursorOffset(0);
+    setError(null);
+  }, []);
+
+  const closeWith = React.useCallback((msg: string) => onDone(msg, { display: 'system' }), [onDone]);
+
+  // ── Menu navigation ────────────────────────────────────────────────────
+  useInput(
+    (input, key) => {
+      if (step.kind !== 'menu' || inFlight) return;
+      if (key.upArrow) {
+        setSelectedIndex(idx => Math.max(0, idx - 1));
+        return;
+      }
+      if (key.downArrow) {
+        setSelectedIndex(idx => Math.min(VAULT_MENU.length - 1, idx + 1));
+        return;
+      }
+      if (key.return) {
+        const choice = VAULT_MENU[selectedIndex];
+        if (!choice) return;
+        if (choice.kind === 'about') {
+          closeWith(USAGE);
+          return;
+        }
+        if (choice.kind === 'list') {
+          setInFlight(true);
           void listKeys().then(keys => {
-            onDone(formatKeyList(keys), { display: 'system' });
+            closeWith(formatKeyList(keys));
           });
-        },
-      },
-      {
-        label: 'Set',
-        description: 'Prepare a command to store a redacted secret',
-        run: () =>
-          onDone(undefined, {
-            display: 'skip',
-            nextInput: '/local-vault set ',
-          }),
-      },
-      {
-        label: 'Get',
-        description: 'Prepare a masked secret lookup',
-        run: () =>
-          onDone(undefined, {
-            display: 'skip',
-            nextInput: '/local-vault get ',
-          }),
-      },
-      {
-        label: 'Delete',
-        description: 'Prepare a secret deletion command',
-        run: () =>
-          onDone(undefined, {
-            display: 'skip',
-            nextInput: '/local-vault delete ',
-          }),
-      },
-      {
-        label: 'About',
-        description: 'Show local vault command syntax',
-        run: () => onDone(USAGE, { display: 'system' }),
-      },
-    ],
-    [onDone],
+          return;
+        }
+        // Set / Get / Delete — collect key first
+        transition({ kind: 'collect-key', action: choice.kind });
+        return;
+      }
+      const n = Number(input);
+      if (Number.isInteger(n) && n >= 1 && n <= VAULT_MENU.length) {
+        setSelectedIndex(n - 1);
+      }
+    },
+    { isActive: step.kind === 'menu' && !inFlight },
   );
 
-  const selectCurrent = () => {
-    const action = actions[selectedIndex];
-    if (!action) return;
-    action.run();
+  // ── Confirmations (overwrite / delete) ─────────────────────────────────
+  useInput(
+    (input, key) => {
+      if (step.kind !== 'confirm-overwrite' && step.kind !== 'confirm-delete') {
+        return;
+      }
+      if (key.escape) {
+        transition({ kind: 'menu' });
+        return;
+      }
+      const ch = input.toLowerCase();
+      if (ch === 'y' || key.return) {
+        if (step.kind === 'confirm-delete') {
+          setInFlight(true);
+          const key = step.key;
+          void deleteSecret(key).then(removed => {
+            closeWith(removed ? `Deleted: ${key}` : `Key not found: ${key}`);
+          });
+        } else {
+          // confirm-overwrite — proceed with setSecret
+          setInFlight(true);
+          const k = step.key;
+          const v = step.value;
+          void setSecret(k, v)
+            .then(() => closeWith(`Secret stored: ${k} = [REDACTED]`))
+            .catch(e => closeWith(`Failed to store ${k}: ${e instanceof Error ? e.message : String(e)}`));
+        }
+      } else if (ch === 'n') {
+        transition({ kind: 'menu' });
+      }
+    },
+    {
+      isActive: (step.kind === 'confirm-overwrite' || step.kind === 'confirm-delete') && !inFlight,
+    },
+  );
+
+  // Esc back-step in collect-* steps
+  useInput(
+    (_input, key) => {
+      if (step.kind !== 'collect-key' && step.kind !== 'collect-value') return;
+      if (key.escape) {
+        if (step.kind === 'collect-value') {
+          transition({ kind: 'collect-key', action: 'set' });
+          return;
+        }
+        transition({ kind: 'menu' });
+      }
+    },
+    {
+      isActive: (step.kind === 'collect-key' || step.kind === 'collect-value') && !inFlight,
+    },
+  );
+
+  // ── Action handlers ─────────────────────────────────────────────────────
+  const handleKeySubmit = (raw: string) => {
+    const key = raw.trim();
+    if (!key) {
+      setError('Key required');
+      return;
+    }
+    if (!isValidKey(key)) {
+      setError('Invalid key (allowed: letters/digits/._- only; no leading dot; not a Windows reserved name)');
+      return;
+    }
+    if (step.kind !== 'collect-key') return;
+    if (step.action === 'get') {
+      setInFlight(true);
+      void getSecret(key).then(v => {
+        if (v === null) {
+          closeWith(`Key not found: ${key}`);
+        } else {
+          closeWith(`Key found: ${key} = ${maskSecret(v)}`);
+        }
+      });
+      return;
+    }
+    if (step.action === 'delete') {
+      transition({ kind: 'confirm-delete', key });
+      return;
+    }
+    if (step.action === 'set') {
+      transition({ kind: 'collect-value', key });
+      return;
+    }
   };
 
-  useInput((_input, key) => {
-    if (key.upArrow) {
-      setSelectedIndex(index => Math.max(0, index - 1));
+  const handleValueSubmit = (rawValue: string) => {
+    if (step.kind !== 'collect-value') return;
+    if (rawValue.length === 0) {
+      setError('Secret value cannot be empty');
       return;
     }
-    if (key.downArrow) {
-      setSelectedIndex(index => Math.min(actions.length - 1, index + 1));
-      return;
-    }
-    if (key.return) {
-      selectCurrent();
-    }
-  });
+    const k = step.key;
+    // Check overwrite
+    setInFlight(true);
+    void getSecret(k)
+      .then(existing => {
+        if (existing !== null) {
+          // Need confirmation
+          setInFlight(false);
+          transition({
+            kind: 'confirm-overwrite',
+            key: k,
+            value: rawValue,
+          });
+          return;
+        }
+        return setSecret(k, rawValue).then(() => closeWith(`Secret stored: ${k} = [REDACTED]`));
+      })
+      .catch(e => closeWith(`Failed to store ${k}: ${e instanceof Error ? e.message : String(e)}`));
+  };
 
+  // ── Render ──────────────────────────────────────────────────────────────
+  if (step.kind === 'menu') {
+    return (
+      <Dialog
+        title="Local Vault"
+        subtitle={`${VAULT_MENU.length} actions`}
+        onCancel={() => closeWith('Local vault panel dismissed')}
+        color="background"
+        hideInputGuide
+      >
+        <Box flexDirection="column">
+          {VAULT_MENU.map((m, i) => (
+            <Box key={m.kind} flexDirection="row">
+              <Text>{`${i === selectedIndex ? '›' : ' '} ${m.label}`.padEnd(ACTION_LABEL_COLUMN_WIDTH)}</Text>
+              <Text dimColor>{m.description}</Text>
+            </Box>
+          ))}
+          {inFlight && (
+            <Box marginTop={1}>
+              <Text dimColor>Working...</Text>
+            </Box>
+          )}
+          <Box marginTop={1}>
+            <Text dimColor>↑/↓ or 1-5 select · Enter run · Esc close</Text>
+          </Box>
+        </Box>
+      </Dialog>
+    );
+  }
+
+  if (step.kind === 'confirm-delete') {
+    return (
+      <Dialog title="Confirm Delete" onCancel={() => transition({ kind: 'menu' })} color="warning" hideInputGuide>
+        <Box flexDirection="column">
+          <Text>Delete secret "{step.key}"? This cannot be undone.</Text>
+          <Box marginTop={1}>
+            <Text dimColor>y/Enter = delete · n/Esc = cancel</Text>
+          </Box>
+          {inFlight && <Text dimColor>Deleting...</Text>}
+        </Box>
+      </Dialog>
+    );
+  }
+
+  if (step.kind === 'confirm-overwrite') {
+    return (
+      <Dialog title="Confirm Overwrite" onCancel={() => transition({ kind: 'menu' })} color="warning" hideInputGuide>
+        <Box flexDirection="column">
+          <Text>Secret "{step.key}" already exists. Overwrite? Old value is lost.</Text>
+          <Box marginTop={1}>
+            <Text dimColor>y/Enter = overwrite · n/Esc = cancel</Text>
+          </Box>
+          {inFlight && <Text dimColor>Storing...</Text>}
+        </Box>
+      </Dialog>
+    );
+  }
+
+  // collect-key / collect-value
+  const fieldLabel = step.kind === 'collect-key' ? 'KEY NAME' : 'SECRET VALUE';
+  const placeholder = step.kind === 'collect-key' ? 'e.g. github-token' : '(masked input — value never displayed)';
+  const onSubmit = step.kind === 'collect-key' ? handleKeySubmit : handleValueSubmit;
+  const isMasked = step.kind === 'collect-value';
   return (
     <Dialog
-      title="Local Vault"
-      subtitle={`${actions.length} actions`}
-      onCancel={() => onDone('Local vault panel dismissed', { display: 'system' })}
+      title={`Local Vault · ${step.kind === 'collect-key' ? 'KEY' : 'VALUE'}`}
+      onCancel={() => transition({ kind: 'menu' })}
       color="background"
       hideInputGuide
     >
       <Box flexDirection="column">
-        {actions.map((action, index) => (
-          <Box key={action.label} flexDirection="row">
-            <Text>{`${index === selectedIndex ? '›' : ' '} ${action.label}`.padEnd(ACTION_LABEL_COLUMN_WIDTH)}</Text>
-            <Text dimColor>{action.description}</Text>
+        <Box>
+          <Text dimColor>{fieldLabel}</Text>
+        </Box>
+        <Box>
+          <Text>{'> '}</Text>
+          <TextInput
+            value={textValue}
+            onChange={v => {
+              setTextValue(v);
+              setError(null);
+            }}
+            cursorOffset={cursorOffset}
+            onChangeCursorOffset={setCursorOffset}
+            onSubmit={onSubmit}
+            placeholder={placeholder}
+            columns={70}
+            showCursor
+            mask={isMasked ? '*' : undefined}
+          />
+        </Box>
+        {error !== null && (
+          <Box marginTop={0}>
+            <Text color="warning">✗ {error}</Text>
           </Box>
-        ))}
+        )}
+        {inFlight && (
+          <Box marginTop={0}>
+            <Text dimColor>Working...</Text>
+          </Box>
+        )}
         <Box marginTop={1}>
-          <Text dimColor>↑/↓ select · Enter run · Esc close</Text>
+          <Text dimColor>Enter = next · Esc = back</Text>
         </Box>
       </Box>
     </Dialog>
@@ -149,14 +376,9 @@ async function dispatchLocalVault(
     }
     if (reveal) {
       // Security invariant: only --reveal shows plaintext; warn user
-      onDone(
-        [
-          `Secret revealed for: ${key}`,
-          'Warning: secret revealed in terminal.',
-          `${key} = ${value}`,
-        ].join('\n'),
-        { display: 'system' },
-      );
+      onDone([`Secret revealed for: ${key}`, 'Warning: secret revealed in terminal.', `${key} = ${value}`].join('\n'), {
+        display: 'system',
+      });
       return null;
     }
     // Default: mask display

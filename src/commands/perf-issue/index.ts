@@ -548,14 +548,14 @@ const perfIssue: Command = {
         } else {
           reportContent = formatReportMarkdown(sessionId, logPath, safeAnalyzed)
           if (!hasLog) {
-            reportContent += `\n\n## Session Log\n(log not found at ${logPath})`
+            reportContent += `\n\n## Session Log\n(log not found at \`${logPath}\`)`
           }
         }
 
         writeFileSync(reportPath, reportContent, 'utf8')
         return {
           type: 'text',
-          value: `Perf snapshot written to:\n  ${reportPath}\n\nFormat: ${format}\nEdit it to add notes, then attach to your bug report.`,
+          value: `Perf snapshot written to:\n  \`${reportPath}\`\n\nFormat: ${format}\nEdit it to add notes, then attach to your bug report.`,
         }
       } catch (err: unknown) {
         const msg = sanitizeErrorMessage(

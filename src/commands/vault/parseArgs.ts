@@ -27,7 +27,7 @@ export type VaultArgs =
   | { action: 'invalid'; reason: string }
 
 const USAGE =
-  'Usage: /vault list | create <name> | get <id> | archive <id> | add-credential <vault_id> <key> <value> | archive-credential <vault_id> <cred_id>'
+  'Usage: /vault list | create NAME | get ID | archive ID | add-credential VAULT_ID KEY VALUE | archive-credential VAULT_ID CRED_ID'
 
 export function parseVaultArgs(args: string): VaultArgs {
   const trimmed = args.trim()

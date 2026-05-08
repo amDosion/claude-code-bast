@@ -6,8 +6,10 @@ const localMemoryCommand: Command = {
   aliases: ['lm'],
   description:
     'Manage local memory stores for notes and context. Stored in ~/.claude/local-memory/ — no API key required.',
-  argumentHint:
-    'list | create <store> | store <store> <key> <value> | fetch <store> <key> | entries <store> | archive <store>',
+  // Avoid `<store>` / `<key>` / `<value>` in hint — REPL markdown renderer
+  // strips angle-bracketed words as HTML tags. Uppercase placeholders are
+  // visible. Same fix as /local-vault.
+  argumentHint: 'list | create STORE | store STORE KEY VALUE | fetch STORE KEY | entries STORE | archive STORE',
   isHidden: false,
   isEnabled: () => true,
   bridgeSafe: true,

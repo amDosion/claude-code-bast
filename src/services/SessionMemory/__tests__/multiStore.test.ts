@@ -103,11 +103,65 @@ describe('multiStore', () => {
     expect(getEntry('large', 'big-entry')).toBe(largeValue)
   })
 
-  test('Unicode key is accepted and stored', async () => {
-    const { createStore, setEntry, getEntry } = await import('../multiStore.js')
+  test('Unicode key is rejected (path-safety policy from PR-0a)', async () => {
+    const { createStore, setEntry } = await import('../multiStore.js')
     createStore('unicode-store')
-    setEntry('unicode-store', '日本語キー', 'value with 日本語')
-    expect(getEntry('unicode-store', '日本語キー')).toBe('value with 日本語')
+    // Unicode keys are now rejected by validateKey to keep path-safety
+    // semantics OS-portable and to enable safe permission rule contents.
+    // Value can still contain unicode — only the key is constrained.
+    expect(() =>
+      setEntry('unicode-store', '日本語キー', 'value with 日本語'),
+    ).toThrow(/invalid key chars/i)
+  })
+
+  test('value with unicode is still stored fine (only key is constrained)', async () => {
+    const { createStore, setEntry, getEntry } = await import('../multiStore.js')
+    createStore('unicode-value-store')
+    setEntry('unicode-value-store', 'ascii_key', 'value with 日本語 ✓')
+    expect(getEntry('unicode-value-store', 'ascii_key')).toBe(
+      'value with 日本語 ✓',
+    )
+  })
+
+  test('backward compat: pre-existing a_b.md file remains readable as a_b key', async () => {
+    // Simulates the pre-PR-0a state where a user wrote setEntry('s', 'a_b', X)
+    // OR setEntry('s', 'a/b', X) — both produced a_b.md on disk. After PR-0a,
+    // the new validateKey rejects 'a/b' but accepts 'a_b'. Existing a_b.md
+    // files must still load via getEntry('s', 'a_b').
+    const { createStore, getEntry } = await import('../multiStore.js')
+    createStore('compat-store')
+    const storeDir = join(tmpDir, 'local-memory', 'compat-store')
+    writeFileSync(join(storeDir, 'a_b.md'), 'legacy content')
+    expect(getEntry('compat-store', 'a_b')).toBe('legacy content')
+  })
+
+  test('key collision regression: a/b is rejected, no longer collides with a_b', async () => {
+    const { createStore, setEntry, getEntry } = await import('../multiStore.js')
+    createStore('regression-store')
+    // a_b is valid and stored
+    setEntry('regression-store', 'a_b', 'value-from-underscore')
+    // a/b is now rejected (would have collided pre-PR-0a)
+    expect(() =>
+      setEntry('regression-store', 'a/b', 'value-from-slash'),
+    ).toThrow(/invalid key chars/i)
+    // a_b still has the correct value (no overwrite happened)
+    expect(getEntry('regression-store', 'a_b')).toBe('value-from-underscore')
+  })
+
+  test('Windows reserved name NUL is rejected (would silently lose data on Windows)', async () => {
+    const { createStore, setEntry } = await import('../multiStore.js')
+    createStore('win-reserved')
+    expect(() => setEntry('win-reserved', 'NUL', 'lost')).toThrow(
+      /windows reserved/i,
+    )
+  })
+
+  test('leading dot key is rejected (.gitconfig)', async () => {
+    const { createStore, setEntry } = await import('../multiStore.js')
+    createStore('hidden-keys')
+    expect(() => setEntry('hidden-keys', '.gitconfig', 'x')).toThrow(
+      /leading dot/i,
+    )
   })
 })
 

@@ -25,7 +25,7 @@ export type SkillStoreArgs =
   | { action: 'invalid'; reason: string }
 
 const USAGE =
-  'Usage: /skill-store list | get <id> | versions <id> | version <id> <ver> | create <name> <markdown> | delete <id> | install <id>[@<version>]'
+  'Usage: /skill-store list | get ID | versions ID | version ID VER | create NAME MARKDOWN | delete ID | install ID[@VERSION]'
 
 export function parseSkillStoreArgs(args: string): SkillStoreArgs {
   const trimmed = args.trim()

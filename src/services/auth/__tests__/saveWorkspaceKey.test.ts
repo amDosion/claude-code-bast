@@ -80,4 +80,39 @@ describe('saveWorkspaceKey', () => {
     expect(thrownError!.message).not.toContain('SECRETSECRET')
     expect(thrownError!.message).not.toContain('A'.repeat(50))
   })
+
+  test('removeWorkspaceKey deletes workspaceApiKey field via saveGlobalConfig', async () => {
+    let captured: { workspaceApiKey?: string } | null = null
+    mock.module('src/utils/config.ts', () => ({
+      isConfigEnabled: () => true,
+      getGlobalConfig: () => ({ workspaceApiKey: 'sk-ant-api03-EXISTING' }),
+      saveGlobalConfig: (
+        updater: (cur: { workspaceApiKey?: string }) => unknown,
+      ) => {
+        captured = updater({ workspaceApiKey: 'sk-ant-api03-EXISTING' }) as {
+          workspaceApiKey?: string
+        }
+        return undefined
+      },
+    }))
+    const { removeWorkspaceKey } = await import('../saveWorkspaceKey.js')
+    await expect(removeWorkspaceKey()).resolves.toBeUndefined()
+    expect(captured).not.toBeNull()
+    const next = captured as unknown as { workspaceApiKey?: string }
+    expect('workspaceApiKey' in next).toBe(false)
+  })
+
+  test('removeWorkspaceKey wraps underlying error with sanitized message', async () => {
+    mock.module('src/utils/config.ts', () => ({
+      isConfigEnabled: () => true,
+      getGlobalConfig: () => ({}),
+      saveGlobalConfig: () => {
+        throw new Error('disk full at /tmp/x')
+      },
+    }))
+    const { removeWorkspaceKey } = await import('../saveWorkspaceKey.js')
+    await expect(removeWorkspaceKey()).rejects.toThrow(
+      /Failed to remove workspace API key/,
+    )
+  })
 })

@@ -7,8 +7,9 @@ const vaultCommand: Command = {
   aliases: ['vaults'],
   description:
     'Manage remote secret vaults and credentials for cloud agents. Requires Claude Pro/Max/Team subscription.',
+  // REPL markdown renderer strips `<...>` as HTML tags — use uppercase.
   argumentHint:
-    'list | create <name> | get <id> | archive <id> | add-credential <vault_id> <key> <value> | archive-credential <vault_id> <cred_id>',
+    'list | create NAME | get ID | archive ID | add-credential VAULT_ID KEY VALUE | archive-credential VAULT_ID CRED_ID',
   // Visible when a workspace API key is available from env or saved settings.
   // Use a getter so getGlobalConfig() runs lazily (after enableConfigs())
   // instead of at module-load time, which races bootstrap and throws.

@@ -18,8 +18,11 @@ export type LocalVaultArgs =
   | { action: 'delete'; key: string }
   | { action: 'invalid'; reason: string }
 
+// Markdown renderer in REPL output treats `<key>` / `<value>` as HTML tags
+// and strips them. Use uppercase placeholder names without angle brackets
+// so the full usage line is visible to users.
 const USAGE =
-  'Usage: /local-vault list | set <key> <value> | get <key> [--reveal] | delete <key>'
+  'Usage: /local-vault list | set KEY VALUE | get KEY [--reveal] | delete KEY'
 
 export function parseLocalVaultArgs(args: string): LocalVaultArgs {
   const trimmed = args.trim()
