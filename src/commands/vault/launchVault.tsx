@@ -14,7 +14,7 @@ import { parseVaultArgs } from './parseArgs.js';
 import { launchCommand } from '../_shared/launchCommand.js';
 
 const USAGE =
-  'Usage: /vault list | create <name> | get <id> | archive <id> | add-credential <vault_id> <key> <value> | archive-credential <vault_id> <cred_id>';
+  'Usage: /vault list | create NAME | get ID | archive ID | add-credential VAULT_ID KEY VALUE | archive-credential VAULT_ID CRED_ID';
 
 type VaultViewProps = React.ComponentProps<typeof VaultView>;
 

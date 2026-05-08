@@ -97,6 +97,6 @@ export function parseAgentsPlatformArgs(args: string): AgentsPlatformArgs {
 
   return {
     action: 'invalid',
-    reason: `Unknown sub-command "${subCmd}". Use: list | create <cron> <prompt> | delete <id> | run <id>`,
+    reason: `Unknown sub-command "${subCmd}". Use: list | create CRON PROMPT | delete ID | run ID`,
   }
 }

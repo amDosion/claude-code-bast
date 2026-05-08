@@ -247,7 +247,7 @@ async function dispatchMemoryStores(
 }
 
 const USAGE_MS =
-  'Usage: /memory-stores list | get <id> | create <name> | archive <id> | memories <store_id> | create-memory <store_id> <content> | get-memory <store_id> <memory_id> | update-memory <store_id> <memory_id> <content> | delete-memory <store_id> <memory_id> | versions <store_id> | redact <store_id> <version_id>';
+  'Usage: /memory-stores list | get ID | create NAME | archive ID | memories STORE_ID | create-memory STORE_ID CONTENT | get-memory STORE_ID MEMORY_ID | update-memory STORE_ID MEMORY_ID CONTENT | delete-memory STORE_ID MEMORY_ID | versions STORE_ID | redact STORE_ID VERSION_ID';
 
 export const callMemoryStores: LocalJSXCommandCall = launchCommand<
   ReturnType<typeof parseMemoryStoresArgs>,

@@ -7,7 +7,8 @@ const teleport: Command = {
   // claude.exe: `name:"teleport",aliases:["tp"]`). Keeping it for parity.
   aliases: ['tp'],
   description: 'Resume a Claude Code session from claude.ai',
-  argumentHint: '<session-id>',
+  // REPL markdown renderer strips `<...>` as HTML tags — use uppercase.
+  argumentHint: 'SESSION_ID',
   isHidden: false,
   isEnabled: () => true,
   bridgeSafe: false,

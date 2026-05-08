@@ -21,8 +21,11 @@ export type LocalMemoryArgs =
   | { action: 'archive'; store: string }
   | { action: 'invalid'; reason: string }
 
+// Markdown renderer in REPL eats `<store>` / `<key>` / `<value>` as if
+// they were HTML tags. Use uppercase placeholders so users see the
+// full usage line. (Same fix as src/commands/local-vault/parseArgs.ts.)
 const USAGE =
-  'Usage: /local-memory list | create <store> | store <store> <key> <value> | fetch <store> <key> | entries <store> | archive <store>'
+  'Usage: /local-memory list | create STORE | store STORE KEY VALUE | fetch STORE KEY | entries STORE | archive STORE'
 
 export function parseLocalMemoryArgs(args: string): LocalMemoryArgs {
   const trimmed = args.trim()

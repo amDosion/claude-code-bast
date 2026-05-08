@@ -120,7 +120,7 @@ export const callAgentsPlatform: LocalJSXCommandCall = launchCommand<
       });
       return {
         action: 'invalid' as const,
-        reason: `Usage: /agents-platform list | create <cron> <prompt> | delete <id> | run <id>\n${result.reason}`,
+        reason: `Usage: /agents-platform list | create CRON PROMPT | delete ID | run ID\n${result.reason}`,
       };
     }
     return result;

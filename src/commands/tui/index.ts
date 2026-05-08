@@ -63,7 +63,7 @@ function enableTui(): LocalCommandResult {
     value: [
       '## TUI mode enabled',
       '',
-      `Marker written: ${markerPath}`,
+      `Marker written: \`${markerPath}\``,
       '',
       'Flicker-free alternate-screen rendering will be active on the next',
       'session start.  Add this to your shell profile to make it permanent:',
@@ -89,7 +89,7 @@ function disableTui(): LocalCommandResult {
     value: [
       '## TUI mode disabled',
       '',
-      `Marker removed: ${markerPath}`,
+      `Marker removed: \`${markerPath}\``,
       '',
       'Standard (non-alternate-screen) rendering will be used on the next',
       'session start.',
@@ -120,7 +120,7 @@ export async function callTui(args: string): Promise<LocalCommandResult> {
       value: [
         '## TUI Mode Status',
         '',
-        `  Marker file:  ${enabled ? 'present' : 'absent'} (${markerPath})`,
+        `  Marker file:  ${enabled ? 'present' : 'absent'} (\`${markerPath}\`)`,
         `  Mode:         ${enabled ? 'enabled' : 'disabled'}`,
         `  Env var:      ${envLine}`,
         '',
@@ -161,7 +161,9 @@ const tuiCommand: Command = {
   argumentHint: '[status|on|off|toggle]',
   bridgeSafe: true,
   getBridgeInvocationError: args =>
-    args.trim() ? undefined : 'Use /tui status/on/off/toggle over Remote Control.',
+    args.trim()
+      ? undefined
+      : 'Use /tui status/on/off/toggle over Remote Control.',
   load: () => import('./panel.js'),
 }
 

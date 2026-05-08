@@ -23,7 +23,7 @@ export const callSchedule: LocalJSXCommandCall = async (onDone, _context, args) 
       reason: parsed.reason as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
     });
     onDone(
-      `Usage: /schedule list | get <id> | create <cron> <prompt> | update <id> <field> <value> | delete <id> | run <id> | enable <id> | disable <id>\n${parsed.reason}`,
+      `Usage: /schedule list | get ID | create CRON PROMPT | update ID FIELD VALUE | delete ID | run ID | enable ID | disable ID\n${parsed.reason}`,
       { display: 'system' },
     );
     return null;

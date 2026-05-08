@@ -7,8 +7,9 @@ const skillStoreCommand: Command = {
   aliases: ['ss', 'cloud-skills'],
   description:
     'Browse and install remote skills from the Anthropic skill marketplace. Requires Claude Pro/Max/Team subscription.',
+  // REPL markdown renderer strips `<...>` as HTML tags — use uppercase.
   argumentHint:
-    'list | get <id> | versions <id> | version <id> <ver> | create <name> <markdown> | delete <id> | install <id>[@<version>]',
+    'list | get ID | versions ID | version ID VER | create NAME MARKDOWN | delete ID | install ID[@VERSION]',
   // Visible when a workspace API key is available from env or saved settings.
   // Use a getter so getGlobalConfig() runs lazily (after enableConfigs())
   // instead of at module-load time, which races bootstrap and throws.

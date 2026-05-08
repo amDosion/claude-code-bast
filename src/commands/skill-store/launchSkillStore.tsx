@@ -12,7 +12,7 @@ import { SkillStoreView } from './SkillStoreView.js';
 import { parseSkillStoreArgs } from './parseArgs.js';
 
 const USAGE =
-  'Usage: /skill-store list | get <id> | versions <id> | version <id> <ver> | create <name> <markdown> | delete <id> | install <id>[@<version>]';
+  'Usage: /skill-store list | get ID | versions ID | version ID VER | create NAME MARKDOWN | delete ID | install ID[@VERSION]';
 
 export const callSkillStore: LocalJSXCommandCall = async (onDone, _context, args) => {
   logEvent('tengu_skill_store_started', {

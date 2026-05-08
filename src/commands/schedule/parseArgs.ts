@@ -26,7 +26,7 @@ export type ScheduleArgs =
   | { action: 'invalid'; reason: string }
 
 const USAGE =
-  'Usage: /schedule list | get <id> | create <cron> <prompt> | update <id> <field> <value> | delete <id> | run <id> | enable <id> | disable <id>'
+  'Usage: /schedule list | get ID | create CRON PROMPT | update ID FIELD VALUE | delete ID | run ID | enable ID | disable ID'
 
 /**
  * Extract the first 5 whitespace-separated tokens as a cron expression;
