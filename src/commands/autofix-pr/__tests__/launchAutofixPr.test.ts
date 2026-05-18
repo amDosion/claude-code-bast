@@ -59,13 +59,32 @@ const getSessionUrlMock = mock(
 const registerCompletionHookMock = mock<
   (taskType: string, hook: (taskId: string, metadata?: unknown) => void) => void
 >(() => {})
+const registerCompletionCheckerMock = mock<
+  (
+    taskType: string,
+    checker: (metadata?: unknown) => Promise<string | null>,
+  ) => void
+>(() => {})
 
 mock.module('src/tasks/RemoteAgentTask/RemoteAgentTask.js', () => ({
   checkRemoteAgentEligibility: checkEligibilityMock,
   registerRemoteAgentTask: registerMock,
   registerCompletionHook: registerCompletionHookMock,
+  registerCompletionChecker: registerCompletionCheckerMock,
   getRemoteTaskSessionUrl: getSessionUrlMock,
   formatPreconditionError: (e: { type: string }) => e.type,
+}))
+
+const fetchPrHeadShaMock = mock<
+  (owner: string, repo: string, prNumber: number) => Promise<string | null>
+>(() => Promise.resolve('sha-baseline-abc123'))
+
+// Mock prFetch.ts (gh CLI spawn layer) — keeping the pure decision matrix
+// in prOutcomeCheck.ts unmocked so its tests are unaffected by this file's
+// process-global mock.module pollution.
+mock.module('src/commands/autofix-pr/prFetch.js', () => ({
+  fetchPrHeadSha: fetchPrHeadShaMock,
+  checkPrAutofixOutcome: mock(() => Promise.resolve({ completed: false })),
 }))
 
 const detectRepoMock = mock(() =>
@@ -433,6 +452,76 @@ describe('callAutofixPr · completion hook wiring (taskId mismatch regression)',
     // Should be the success path, not "already monitoring"
     expect(firstArg).not.toMatch(/already monitoring/i)
     expect(firstArg).toMatch(/Autofix launched/)
+  })
+})
+
+// Phase 2: completionChecker wiring + initialHeadSha capture
+describe('callAutofixPr · Phase 2 completionChecker integration', () => {
+  test('completionChecker is registered at module load with autofix-pr type', () => {
+    // The registration happens during the beforeAll dynamic import; just
+    // verify the mock recorded a call. Filter by task type so any future
+    // additional registrations elsewhere don't break this assertion.
+    const calls = registerCompletionCheckerMock.mock.calls.filter(
+      c => c[0] === 'autofix-pr',
+    )
+    expect(calls.length).toBeGreaterThan(0)
+    const hook = calls[calls.length - 1]?.[1]
+    expect(typeof hook).toBe('function')
+  })
+
+  test('callAutofixPr captures initialHeadSha via fetchPrHeadSha', async () => {
+    fetchPrHeadShaMock.mockClear()
+    await callAutofixPr(onDone, makeContext(), '42')
+    expect(fetchPrHeadShaMock).toHaveBeenCalledWith('acme', 'myrepo', 42)
+  })
+
+  test('initialHeadSha is passed into remoteTaskMetadata on register', async () => {
+    fetchPrHeadShaMock.mockImplementationOnce(() =>
+      Promise.resolve('sha-from-launch'),
+    )
+    await callAutofixPr(onDone, makeContext(), '42')
+    expect(registerMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        remoteTaskMetadata: expect.objectContaining({
+          owner: 'acme',
+          repo: 'myrepo',
+          prNumber: 42,
+          initialHeadSha: 'sha-from-launch',
+        }),
+      }),
+    )
+  })
+
+  test('fetchPrHeadSha failure → metadata initialHeadSha undefined, launch still succeeds', async () => {
+    fetchPrHeadShaMock.mockImplementationOnce(() =>
+      Promise.reject(new Error('gh not installed')),
+    )
+    await callAutofixPr(onDone, makeContext(), '42')
+    expect(registerMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        remoteTaskMetadata: expect.objectContaining({
+          owner: 'acme',
+          repo: 'myrepo',
+          prNumber: 42,
+          initialHeadSha: undefined,
+        }),
+      }),
+    )
+    // Launch must NOT fail just because SHA capture failed
+    const firstArg = onDone.mock.calls[0]?.[0] as string
+    expect(firstArg).toMatch(/Autofix launched/)
+  })
+
+  test('fetchPrHeadSha returning null → metadata initialHeadSha undefined', async () => {
+    fetchPrHeadShaMock.mockImplementationOnce(() => Promise.resolve(null))
+    await callAutofixPr(onDone, makeContext(), '42')
+    expect(registerMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        remoteTaskMetadata: expect.objectContaining({
+          initialHeadSha: undefined,
+        }),
+      }),
+    )
   })
 })
 
