@@ -91,6 +91,14 @@ export type AutofixPrRemoteTaskMetadata = {
   owner: string;
   repo: string;
   prNumber: number;
+  /**
+   * PR head commit SHA captured at /autofix-pr launch. The completionChecker
+   * compares this against the live head to detect when the agent has pushed
+   * new commits. Optional because gh CLI may be unavailable at launch — in
+   * that case the checker falls back to terminal-state-only completion.
+   * Survives --resume via the session sidecar.
+   */
+  initialHeadSha?: string;
 };
 
 export type RemoteTaskMetadata = AutofixPrRemoteTaskMetadata;
