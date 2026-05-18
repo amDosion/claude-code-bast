@@ -65,12 +65,16 @@ const registerCompletionCheckerMock = mock<
     checker: (metadata?: unknown) => Promise<string | null>,
   ) => void
 >(() => {})
+const registerContentExtractorMock = mock<
+  (taskType: string, extractor: (log: unknown[]) => string | null) => void
+>(() => {})
 
 mock.module('src/tasks/RemoteAgentTask/RemoteAgentTask.js', () => ({
   checkRemoteAgentEligibility: checkEligibilityMock,
   registerRemoteAgentTask: registerMock,
   registerCompletionHook: registerCompletionHookMock,
   registerCompletionChecker: registerCompletionCheckerMock,
+  registerContentExtractor: registerContentExtractorMock,
   getRemoteTaskSessionUrl: getSessionUrlMock,
   formatPreconditionError: (e: { type: string }) => e.type,
 }))
@@ -522,6 +526,60 @@ describe('callAutofixPr · Phase 2 completionChecker integration', () => {
         }),
       }),
     )
+  })
+})
+
+// Phase 3: content extractor wiring + initialMessage tag instruction
+describe('callAutofixPr · Phase 3 content extractor integration', () => {
+  test('registerContentExtractor is called at module load with autofix-pr type', () => {
+    const calls = registerContentExtractorMock.mock.calls.filter(
+      c => c[0] === 'autofix-pr',
+    )
+    expect(calls.length).toBeGreaterThan(0)
+    const extractor = calls[calls.length - 1]?.[1]
+    expect(typeof extractor).toBe('function')
+  })
+
+  test('initialMessage instructs the remote agent to emit an <autofix-result> tag', async () => {
+    await callAutofixPr(onDone, makeContext(), '42')
+    // teleportMock's typed signature has no args, so calls[0] is a
+    // zero-length tuple. We know teleportToRemote is invoked with one
+    // options object, so double-cast through unknown to read the args.
+    const calls = teleportMock.mock.calls as unknown as Array<
+      [{ initialMessage?: string }]
+    >
+    const teleportArgs = calls[0]?.[0]
+    expect(teleportArgs?.initialMessage).toContain('<autofix-result>')
+    expect(teleportArgs?.initialMessage).toContain('</autofix-result>')
+    expect(teleportArgs?.initialMessage).toContain('<ci-status>')
+    expect(teleportArgs?.initialMessage).toContain('<summary>')
+  })
+
+  test('registered extractor returns string for valid log and null for empty', () => {
+    const calls = registerContentExtractorMock.mock.calls.filter(
+      c => c[0] === 'autofix-pr',
+    )
+    const extractor = calls[calls.length - 1]?.[1] as
+      | ((log: unknown[]) => string | null)
+      | undefined
+    expect(extractor).toBeDefined()
+    // Empty log → null
+    expect(extractor?.([])).toBeNull()
+    // Log with assistant text containing tag → returns it
+    const logWithTag = [
+      {
+        type: 'assistant',
+        message: {
+          content: [
+            {
+              type: 'text',
+              text: 'done\n<autofix-result><summary>x</summary></autofix-result>',
+            },
+          ],
+        },
+      },
+    ]
+    expect(extractor?.(logWithTag)).toContain('<autofix-result>')
   })
 })
 

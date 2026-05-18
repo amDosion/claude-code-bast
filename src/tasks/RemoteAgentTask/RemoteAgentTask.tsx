@@ -134,6 +134,39 @@ export type RemoteTaskCompletionHook = (taskId: string, remoteTaskMetadata: Remo
 const completionHooks = new Map<RemoteTaskType, RemoteTaskCompletionHook>();
 
 /**
+ * Inspect a completed remote task's accumulated log and return an XML fragment
+ * to inject inline into the completion task-notification. Returning null falls
+ * back to the framework's generic "task completed" notification (file-path
+ * pointer only). Used by command modules whose remote agents emit structured
+ * outcome tags the local model should read directly.
+ */
+export type RemoteTaskContentExtractor = (log: SDKMessage[]) => string | null;
+
+const contentExtractors = new Map<RemoteTaskType, RemoteTaskContentExtractor>();
+
+/**
+ * Register a content extractor for a remote task type. Called once per
+ * completion in the generic completion branches (archived, completionChecker,
+ * result-driven). isRemoteReview tasks have their own bespoke path and skip
+ * extractors entirely. Errors propagate to the framework which logs and falls
+ * back to generic notification.
+ */
+export function registerContentExtractor(remoteTaskType: RemoteTaskType, extractor: RemoteTaskContentExtractor): void {
+  contentExtractors.set(remoteTaskType, extractor);
+}
+
+function tryExtractRichContent(task: RemoteAgentTaskState, log: SDKMessage[]): string | null {
+  const extractor = contentExtractors.get(task.remoteTaskType);
+  if (!extractor) return null;
+  try {
+    return extractor(log);
+  } catch (e) {
+    logError(e);
+    return null;
+  }
+}
+
+/**
  * Register a completion hook for a remote task type. Invoked once after the
  * task reaches a terminal state in any of the framework's completion branches
  * (archived session, completionChecker, stableIdle, result). Use this to
@@ -249,6 +282,41 @@ function enqueueRemoteNotification(
 <${STATUS_TAG}>${status}</${STATUS_TAG}>
 <${SUMMARY_TAG}>Remote task "${title}" ${statusText}</${SUMMARY_TAG}>
 </${TASK_NOTIFICATION_TAG}>`;
+
+  enqueuePendingNotification({ value: message, mode: 'task-notification' });
+}
+
+/**
+ * Same as enqueueRemoteNotification but inlines a structured XML fragment
+ * (returned by a registered RemoteTaskContentExtractor) so the local model
+ * reads the remote agent's outcome directly instead of having to follow a
+ * file-path pointer. Mode is still 'task-notification' — the framing XML is
+ * the same, only the body differs.
+ */
+function enqueueRichRemoteNotification(
+  taskId: string,
+  title: string,
+  status: 'completed' | 'failed' | 'killed',
+  richContent: string,
+  setAppState: SetAppState,
+  toolUseId?: string,
+): void {
+  if (!markTaskNotified(taskId, setAppState)) return;
+
+  const statusText = status === 'completed' ? 'completed successfully' : status === 'failed' ? 'failed' : 'was stopped';
+  const toolUseIdLine = toolUseId ? `\n<${TOOL_USE_ID_TAG}>${toolUseId}</${TOOL_USE_ID_TAG}>` : '';
+  const outputPath = getTaskOutputPath(taskId);
+
+  const message = `<${TASK_NOTIFICATION_TAG}>
+<${TASK_ID_TAG}>${taskId}</${TASK_ID_TAG}>${toolUseIdLine}
+<${TASK_TYPE_TAG}>remote_agent</${TASK_TYPE_TAG}>
+<${OUTPUT_FILE_TAG}>${outputPath}</${OUTPUT_FILE_TAG}>
+<${STATUS_TAG}>${status}</${STATUS_TAG}>
+<${SUMMARY_TAG}>Remote task "${title}" ${statusText}</${SUMMARY_TAG}>
+</${TASK_NOTIFICATION_TAG}>
+The remote agent produced the following structured outcome. Summarize the key changes for the user:
+
+${richContent}`;
 
   enqueuePendingNotification({ value: message, mode: 'task-notification' });
 }
@@ -718,7 +786,19 @@ function startRemoteSessionPolling(taskId: string, context: TaskContext): () => 
         updateTaskState<RemoteAgentTaskState>(taskId, context.setAppState, t =>
           t.status === 'running' ? { ...t, status: 'completed', endTime: Date.now() } : t,
         );
-        enqueueRemoteNotification(taskId, task.title, 'completed', context.setAppState, task.toolUseId);
+        const richContent = tryExtractRichContent(task, accumulatedLog);
+        if (richContent) {
+          enqueueRichRemoteNotification(
+            taskId,
+            task.title,
+            'completed',
+            richContent,
+            context.setAppState,
+            task.toolUseId,
+          );
+        } else {
+          enqueueRemoteNotification(taskId, task.title, 'completed', context.setAppState, task.toolUseId);
+        }
         void evictTaskOutput(taskId);
         void removeRemoteAgentMetadata(taskId);
         runCompletionHook(taskId, task);
@@ -732,7 +812,19 @@ function startRemoteSessionPolling(taskId: string, context: TaskContext): () => 
           updateTaskState<RemoteAgentTaskState>(taskId, context.setAppState, t =>
             t.status === 'running' ? { ...t, status: 'completed', endTime: Date.now() } : t,
           );
-          enqueueRemoteNotification(taskId, completionResult, 'completed', context.setAppState, task.toolUseId);
+          const richContent = tryExtractRichContent(task, accumulatedLog);
+          if (richContent) {
+            enqueueRichRemoteNotification(
+              taskId,
+              completionResult,
+              'completed',
+              richContent,
+              context.setAppState,
+              task.toolUseId,
+            );
+          } else {
+            enqueueRemoteNotification(taskId, completionResult, 'completed', context.setAppState, task.toolUseId);
+          }
           void evictTaskOutput(taskId);
           void removeRemoteAgentMetadata(taskId);
           runCompletionHook(taskId, task);
@@ -917,7 +1009,21 @@ function startRemoteSessionPolling(taskId: string, context: TaskContext): () => 
           return; // Stop polling
         }
 
-        enqueueRemoteNotification(taskId, task.title, finalStatus, context.setAppState, task.toolUseId);
+        // finalStatus is 'completed' | 'failed' on this path — kill is a
+        // separate code path (RemoteAgentTask.kill) and never reaches here.
+        const richContent = tryExtractRichContent(task, accumulatedLog);
+        if (richContent) {
+          enqueueRichRemoteNotification(
+            taskId,
+            task.title,
+            finalStatus,
+            richContent,
+            context.setAppState,
+            task.toolUseId,
+          );
+        } else {
+          enqueueRemoteNotification(taskId, task.title, finalStatus, context.setAppState, task.toolUseId);
+        }
         void evictTaskOutput(taskId);
         void removeRemoteAgentMetadata(taskId);
         runCompletionHook(taskId, task);
