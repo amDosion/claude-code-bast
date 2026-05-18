@@ -536,9 +536,7 @@ describe('callAutofixPr · Phase 2 completionChecker integration', () => {
 describe('callAutofixPr · Phase 2 completionChecker arrow body', () => {
   // Pull the most recent registered checker — beforeAll registers once at
   // module load; nothing else re-registers across this file's tests.
-  function getChecker(): (
-    metadata?: unknown,
-  ) => Promise<string | null> {
+  function getChecker(): (metadata?: unknown) => Promise<string | null> {
     const calls = registerCompletionCheckerMock.mock.calls.filter(
       c => c[0] === 'autofix-pr',
     )
@@ -585,16 +583,16 @@ describe('callAutofixPr · Phase 2 completionChecker arrow body', () => {
       repo: 'myrepo',
       prNumber: 1002,
     })
-    expect(result).toBe(
-      'acme/myrepo#1002 merged. Autofix monitoring complete.',
-    )
+    expect(result).toBe('acme/myrepo#1002 merged. Autofix monitoring complete.')
   })
 
   test('passes initialHeadSha through to checkPrAutofixOutcome', async () => {
     const { checkPrAutofixOutcome } = await import('../prFetch.js')
     const checkMock = checkPrAutofixOutcome as ReturnType<typeof mock>
     checkMock.mockClear()
-    checkMock.mockImplementationOnce(() => Promise.resolve({ completed: false }))
+    checkMock.mockImplementationOnce(() =>
+      Promise.resolve({ completed: false }),
+    )
     const checker = getChecker()
     await checker({
       owner: 'acme',
