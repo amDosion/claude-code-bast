@@ -115,6 +115,38 @@ export function registerCompletionChecker(remoteTaskType: RemoteTaskType, checke
 }
 
 /**
+ * Called after the task transitions to a terminal state and the notification
+ * has been enqueued. Used by command modules to release singleton locks,
+ * clear cached state, or perform other cleanup the framework cannot see.
+ * Hooks must be synchronous and best-effort — errors are logged but never
+ * propagate.
+ */
+export type RemoteTaskCompletionHook = (taskId: string, remoteTaskMetadata: RemoteTaskMetadata | undefined) => void;
+
+const completionHooks = new Map<RemoteTaskType, RemoteTaskCompletionHook>();
+
+/**
+ * Register a completion hook for a remote task type. Invoked once after the
+ * task reaches a terminal state in any of the framework's completion branches
+ * (archived session, completionChecker, stableIdle, result). Use this to
+ * release command-module state (e.g. singleton locks) without forcing the
+ * framework to reverse-import from the command package.
+ */
+export function registerCompletionHook(remoteTaskType: RemoteTaskType, hook: RemoteTaskCompletionHook): void {
+  completionHooks.set(remoteTaskType, hook);
+}
+
+function runCompletionHook(taskId: string, task: RemoteAgentTaskState): void {
+  const hook = completionHooks.get(task.remoteTaskType);
+  if (!hook) return;
+  try {
+    hook(taskId, task.remoteTaskMetadata);
+  } catch (e) {
+    logError(e);
+  }
+}
+
+/**
  * Persist a remote-agent metadata entry to the session sidecar.
  * Fire-and-forget — persistence failures must not block task registration.
  */
@@ -681,6 +713,7 @@ function startRemoteSessionPolling(taskId: string, context: TaskContext): () => 
         enqueueRemoteNotification(taskId, task.title, 'completed', context.setAppState, task.toolUseId);
         void evictTaskOutput(taskId);
         void removeRemoteAgentMetadata(taskId);
+        runCompletionHook(taskId, task);
         return;
       }
 
@@ -694,6 +727,7 @@ function startRemoteSessionPolling(taskId: string, context: TaskContext): () => 
           enqueueRemoteNotification(taskId, completionResult, 'completed', context.setAppState, task.toolUseId);
           void evictTaskOutput(taskId);
           void removeRemoteAgentMetadata(taskId);
+          runCompletionHook(taskId, task);
           return;
         }
       }
@@ -853,6 +887,7 @@ function startRemoteSessionPolling(taskId: string, context: TaskContext): () => 
             enqueueRemoteReviewNotification(taskId, reviewContent, context.setAppState);
             void evictTaskOutput(taskId);
             void removeRemoteAgentMetadata(taskId);
+            runCompletionHook(taskId, task);
             return; // Stop polling
           }
 
@@ -870,12 +905,14 @@ function startRemoteSessionPolling(taskId: string, context: TaskContext): () => 
           enqueueRemoteReviewFailureNotification(taskId, reason, context.setAppState);
           void evictTaskOutput(taskId);
           void removeRemoteAgentMetadata(taskId);
+          runCompletionHook(taskId, task);
           return; // Stop polling
         }
 
         enqueueRemoteNotification(taskId, task.title, finalStatus, context.setAppState, task.toolUseId);
         void evictTaskOutput(taskId);
         void removeRemoteAgentMetadata(taskId);
+        runCompletionHook(taskId, task);
         return; // Stop polling
       }
     } catch (error) {

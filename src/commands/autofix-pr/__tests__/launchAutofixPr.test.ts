@@ -46,7 +46,7 @@ mock.module('src/utils/teleport.js', () => ({
 }))
 
 const registerMock = mock(() => ({
-  taskId: 'task-abc',
+  taskId: 'framework-task-id',
   sessionId: 'session-123',
   cleanup: () => {},
 }))
@@ -56,10 +56,14 @@ const checkEligibilityMock = mock(() =>
 const getSessionUrlMock = mock(
   (id: string) => `https://claude.ai/session/${id}`,
 )
+const registerCompletionHookMock = mock<
+  (taskType: string, hook: (taskId: string, metadata?: unknown) => void) => void
+>(() => {})
 
 mock.module('src/tasks/RemoteAgentTask/RemoteAgentTask.js', () => ({
   checkRemoteAgentEligibility: checkEligibilityMock,
   registerRemoteAgentTask: registerMock,
+  registerCompletionHook: registerCompletionHookMock,
   getRemoteTaskSessionUrl: getSessionUrlMock,
   formatPreconditionError: (e: { type: string }) => e.type,
 }))
@@ -372,6 +376,63 @@ describe('callAutofixPr', () => {
     await callAutofixPr(onDone, makeContext(), '42')
     // Should still proceed — no_remote_environment is tolerated
     expect(teleportMock).toHaveBeenCalled()
+  })
+})
+
+// Regression suite for the taskId-mismatch latent bug + completion hook wiring.
+// Before this fix, createAutofixTeammate generated a teammate UUID, that UUID
+// was used to acquire the singleton monitor lock, and registerRemoteAgentTask
+// generated a *different* framework taskId. When the framework eventually
+// called clearActiveMonitor(frameworkTaskId) on natural completion, the guard
+// failed (active.taskId !== frameworkTaskId) and the lock stayed acquired,
+// blocking any subsequent /autofix-pr invocations in the same process.
+describe('callAutofixPr · completion hook wiring (taskId mismatch regression)', () => {
+  test('updateActiveMonitor swaps lock taskId to framework-assigned id after register', async () => {
+    await callAutofixPr(onDone, makeContext(), '42')
+    const monitor = getActiveMonitor() as { taskId: string } | null
+    expect(monitor).not.toBeNull()
+    // registerMock returns 'framework-task-id'; before the fix this would be
+    // a teammate-generated random UUID instead.
+    expect(monitor?.taskId).toBe('framework-task-id')
+  })
+
+  test('framework hook → clearActiveMonitor releases lock on natural completion', async () => {
+    await callAutofixPr(onDone, makeContext(), '42')
+    expect(getActiveMonitor()).not.toBeNull()
+
+    // Find the hook the module registered at import time. We grab the last
+    // call so re-imports across tests don't break this — only the most recent
+    // registration is what the framework would invoke now.
+    const calls = registerCompletionHookMock.mock.calls
+    expect(calls.length).toBeGreaterThan(0)
+    const lastCall = calls[calls.length - 1]
+    expect(lastCall?.[0]).toBe('autofix-pr')
+    const hook = lastCall?.[1] as (id: string, metadata?: unknown) => void
+    expect(typeof hook).toBe('function')
+
+    // Simulate the framework invoking the hook with the framework taskId
+    // after a terminal transition. Before the fix this would no-op against
+    // a lock keyed by the teammate UUID.
+    hook('framework-task-id', { owner: 'acme', repo: 'myrepo', prNumber: 42 })
+    expect(getActiveMonitor()).toBeNull()
+  })
+
+  test('subsequent /autofix-pr succeeds after framework hook clears the lock', async () => {
+    await callAutofixPr(onDone, makeContext(), '42')
+    // Simulate natural completion via the registered hook
+    const calls = registerCompletionHookMock.mock.calls
+    const hook = calls[calls.length - 1]?.[1] as (
+      id: string,
+      metadata?: unknown,
+    ) => void
+    hook('framework-task-id', { owner: 'acme', repo: 'myrepo', prNumber: 42 })
+
+    onDone.mockClear()
+    await callAutofixPr(onDone, makeContext(), '99')
+    const firstArg = onDone.mock.calls[0]?.[0] as string
+    // Should be the success path, not "already monitoring"
+    expect(firstArg).not.toMatch(/already monitoring/i)
+    expect(firstArg).toMatch(/Autofix launched/)
   })
 })
 
