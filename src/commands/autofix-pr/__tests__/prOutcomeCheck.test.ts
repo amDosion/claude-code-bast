@@ -133,6 +133,41 @@ describe('summariseAutofixOutcome · OPEN PR with push, CI variations', () => {
     }
   })
 
+  test('statusCheckRollup undefined → treated as no checks configured (success)', () => {
+    // Distinct from empty-array: GitHub omits the field entirely on PRs
+    // without any configured checks. The !rollup branch covers undefined.
+    const result = summariseAutofixOutcome(
+      basePayload({
+        state: 'OPEN',
+        headRefOid: 'sha-new',
+        statusCheckRollup: undefined,
+      }),
+      identity(),
+    )
+    expect(result.completed).toBe(true)
+    if (result.completed) {
+      expect(result.summary).toContain('CI green')
+    }
+  })
+
+  test('check with COMPLETED status but empty conclusion → counted as pending', () => {
+    // Edge case: GitHub sometimes reports a check as COMPLETED with a null/
+    // missing conclusion (in-flight result mid-write). The defensive branch
+    // treats empty conclusion after a passed status check as pending.
+    const result = summariseAutofixOutcome(
+      basePayload({
+        state: 'OPEN',
+        headRefOid: 'sha-new',
+        statusCheckRollup: [
+          { status: 'COMPLETED', conclusion: null, name: 'ci-in-flight' },
+          { status: 'COMPLETED', conclusion: 'SUCCESS', name: 'lint' },
+        ],
+      }),
+      identity(),
+    )
+    expect(result).toEqual({ completed: false })
+  })
+
   test('neutral / skipped conclusions count as success (not failure)', () => {
     const result = summariseAutofixOutcome(
       basePayload({
