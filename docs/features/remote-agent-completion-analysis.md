@@ -71,7 +71,7 @@ type TaskStatus =
 
 转换规则（terminal 三态不可再变，由 `isTerminalTaskStatus()` 守卫）：
 
-```
+```text
 pending → running  : registerTask 推入后，或 teleport 成功
 running → completed: sessionStatus === 'archived' / completionChecker 返回非 null / result.subtype === 'success'
 running → failed   : result.subtype !== 'success' / 超时 / session 404
@@ -88,7 +88,7 @@ running → killed   : 显式调用 task.kill()
 
 完成回流路径：
 
-```
+```text
 远端 session 完成
    → poller 检测 (sessionStatus='archived' 或 result 出现 或 completionChecker 返回值)
    → enqueuePendingNotification({ value: xmlMessage, mode: 'task-notification' })
@@ -180,7 +180,7 @@ export async function archiveRemoteSession(sessionId: string, timeout = 10_000):
 
 官方推荐 **cursor-based HTTP Polling**：
 
-```
+```http
 GET /v1/sessions/{id}/events?after_id={cursor}
 
 Response:
@@ -331,7 +331,7 @@ usage?: {
 
 ### 2.1 状态机
 
-```
+```text
                      registerRemoteAgentTask()
                              │
                              ▼
@@ -524,7 +524,7 @@ setAppState(prev => ({
 // → REPL 检测到 ultraplanPendingChoice 后挂载 UltraplanChoiceDialog
 ```
 
-**用户交互**：`UltraplanChoiceDialog` 三选项
+**用户交互**：`UltraplanChoiceDialog` 三个选项
 
 | 选项 | 行为 |
 |---|---|
@@ -532,7 +532,7 @@ setAppState(prev => ({
 | Start new session | clear conversation + plan 作为新 prompt（mode: `'prompt'`，line 148-151） |
 | Cancel | 写到 `{date}-ultraplan.md`（line 154-159） |
 
-三选项共同收尾（`UltraplanChoiceDialog.tsx:165-177`）：
+三个选项共同收尾（`UltraplanChoiceDialog.tsx:165-177`）：
 
 ```typescript
 updateTaskState(taskId, setAppState, t => ({ ...t, status: 'completed' }))
@@ -742,7 +742,7 @@ enqueuePendingNotification({
 
 **影响**：
 
-```
+```text
 用户跑 /autofix-pr 12 → singleton lock 被设
 CCR session 自然 archive → enqueueRemoteNotification 发完成通知
 监控状态在 monitorState 中仍记着 active monitor
@@ -901,7 +901,7 @@ clearActiveMonitor(frameworkTaskId)
 文件：`src/commands/autofix-pr/launchAutofixPr.ts` + `src/commands/autofix-pr/monitorState.ts`
 
 修改前 `callAutofixPr` 流程：
-```
+```text
 1. createAutofixTeammate() 生成 teammate UUID
 2. setActiveMonitor({ taskId: teammateUUID, ... })
 3. teleportToRemote(...)
@@ -910,7 +910,7 @@ clearActiveMonitor(frameworkTaskId)
 ```
 
 修改后流程：
-```
+```text
 1. createAutofixTeammate() 生成 teammate UUID
 2. setActiveMonitor({ taskId: teammateUUID, ... })
 3. teleportToRemote(...)
@@ -1031,7 +1031,7 @@ if (result || sessionDone || reviewTimedOut) {
 
 在 `initialMessage` 中加入指令:
 
-```
+```text
 When you complete the autofix work,output the following XML tag as your final message:
 
 <autofix-result>
@@ -1396,7 +1396,7 @@ ultrareview 的回流次重(内容回流但无 dialog),autofix-pr 的回流最�
 
 当前实现使用的 CCR API beta header:
 
-```
+```http
 anthropic-beta: ccr-byoc-2025-07-29
 ```
 

@@ -71,14 +71,22 @@ export function extractAutofixResultFromLog(log: SDKMessage[]): string | null {
   return null
 }
 
+// Walks open tags from latest to earliest, returning the first complete
+// open/close pair. Guards against a truncated final tag shadowing an
+// earlier complete pair within the same text block (e.g., a retry wrote a
+// full result, then the model started a second tag that got cut off).
 function extractBetween(
   text: string,
   open: string,
   close: string,
 ): string | null {
-  const start = text.lastIndexOf(open)
-  if (start === -1) return null
-  const end = text.indexOf(close, start + open.length)
-  if (end === -1) return null
-  return text.slice(start, end + close.length)
+  let searchFrom = text.length
+  while (searchFrom >= 0) {
+    const start = text.lastIndexOf(open, searchFrom)
+    if (start === -1) return null
+    const end = text.indexOf(close, start + open.length)
+    if (end !== -1) return text.slice(start, end + close.length)
+    searchFrom = start - 1
+  }
+  return null
 }

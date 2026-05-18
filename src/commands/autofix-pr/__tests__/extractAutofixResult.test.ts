@@ -89,6 +89,16 @@ describe('extractAutofixResultFromLog', () => {
     expect(extractAutofixResultFromLog(log)).toBeNull()
   })
 
+  test('returns earlier complete tag when latest open tag is truncated within the same block', () => {
+    // Retry scenario: a full result was emitted, then a second result tag
+    // started but got cut off. We should surface the earlier complete pair
+    // rather than dropping the whole block.
+    const complete = sampleTag('earlier complete result')
+    const truncated = `<${AUTOFIX_RESULT_TAG}>\n<summary>truncated retry...`
+    const log = [assistantTextMessage(`${complete}\n${truncated}`)]
+    expect(extractAutofixResultFromLog(log)).toBe(complete)
+  })
+
   test('walks backwards so hook stdout from later in log wins over earlier assistant text', () => {
     const earlier = sampleTag('via assistant first')
     const later = sampleTag('via hook later')
