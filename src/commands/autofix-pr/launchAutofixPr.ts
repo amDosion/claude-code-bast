@@ -13,6 +13,7 @@ import {
   checkRemoteAgentEligibility,
   formatPreconditionError,
   getRemoteTaskSessionUrl,
+  registerCompletionHook,
   registerRemoteAgentTask,
   type BackgroundRemoteSessionPrecondition,
 } from '../../tasks/RemoteAgentTask/RemoteAgentTask.js'
@@ -26,9 +27,20 @@ import {
   getActiveMonitor,
   isMonitoring,
   trySetActiveMonitor,
+  updateActiveMonitor,
 } from './monitorState.js'
 import { parseAutofixArgs } from './parseArgs.js'
 import { detectAutofixSkills, formatSkillsHint } from './skillDetect.js'
+
+// Release the singleton monitor lock when the framework transitions the
+// autofix task to a terminal state. Without this, the lock — keyed by the
+// framework-assigned taskId (after callAutofixPr's updateActiveMonitor swap)
+// — would dangle past natural completion, blocking subsequent /autofix-pr
+// invocations until the process restarts. Registered at module load; the
+// framework's runCompletionHook invokes it once per terminal transition.
+registerCompletionHook('autofix-pr', taskId => {
+  clearActiveMonitor(taskId)
+})
 
 function makeErrorText(message: string, code: string): string {
   logEvent('tengu_autofix_pr_result', {
@@ -277,8 +289,15 @@ export const callAutofixPr: LocalJSXCommandCall = async (
     // 4.9 register task. If this throws, release the lock so the user can
     // retry — the remote CCR session is already created so we surface a
     // dedicated error code.
+    //
+    // After registration succeeds, swap the lock's taskId from the tentative
+    // teammate UUID (used to acquire the lock atomically before teleport) to
+    // the framework-assigned taskId. Without this swap, the framework's own
+    // cleanup path (clearActiveMonitor(frameworkTaskId) on natural completion)
+    // would no-op against a lock keyed by teammate.taskId, leaving the
+    // singleton lock dangling and blocking future /autofix-pr invocations.
     try {
-      registerRemoteAgentTask({
+      const { taskId: frameworkTaskId } = registerRemoteAgentTask({
         remoteTaskType: 'autofix-pr',
         session,
         command: `/autofix-pr ${prNumber}`,
@@ -286,6 +305,7 @@ export const callAutofixPr: LocalJSXCommandCall = async (
         isLongRunning: true,
         remoteTaskMetadata: { owner, repo, prNumber },
       })
+      updateActiveMonitor({ taskId: frameworkTaskId })
     } catch (regErr: unknown) {
       clearActiveMonitor(teammate.taskId)
       const regMsg = regErr instanceof Error ? regErr.message : String(regErr)
