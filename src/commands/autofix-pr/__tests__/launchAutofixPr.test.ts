@@ -529,6 +529,147 @@ describe('callAutofixPr · Phase 2 completionChecker integration', () => {
   })
 })
 
+// Phase 2 (cont.): exercise the registered completionChecker arrow body
+// directly. The earlier suite verifies it was registered but never invokes
+// the arrow itself, leaving the throttle / metadata-guard / gh-CLI dispatch
+// branches uncovered.
+describe('callAutofixPr · Phase 2 completionChecker arrow body', () => {
+  // Pull the most recent registered checker — beforeAll registers once at
+  // module load; nothing else re-registers across this file's tests.
+  function getChecker(): (
+    metadata?: unknown,
+  ) => Promise<string | null> {
+    const calls = registerCompletionCheckerMock.mock.calls.filter(
+      c => c[0] === 'autofix-pr',
+    )
+    const fn = calls[calls.length - 1]?.[1]
+    if (typeof fn !== 'function') {
+      throw new Error('completionChecker not registered')
+    }
+    return fn
+  }
+
+  test('returns null when metadata is undefined (early guard)', async () => {
+    const checker = getChecker()
+    expect(await checker(undefined)).toBeNull()
+  })
+
+  test('returns null when checkPrAutofixOutcome reports not completed', async () => {
+    const { checkPrAutofixOutcome } = await import('../prFetch.js')
+    ;(checkPrAutofixOutcome as ReturnType<typeof mock>).mockImplementationOnce(
+      () => Promise.resolve({ completed: false }),
+    )
+    const checker = getChecker()
+    // Distinct PR number to dodge the in-process throttle map carried over
+    // from earlier tests.
+    const result = await checker({
+      owner: 'acme',
+      repo: 'myrepo',
+      prNumber: 1001,
+    })
+    expect(result).toBeNull()
+  })
+
+  test('returns the summary string when checkPrAutofixOutcome reports completed', async () => {
+    const { checkPrAutofixOutcome } = await import('../prFetch.js')
+    ;(checkPrAutofixOutcome as ReturnType<typeof mock>).mockImplementationOnce(
+      () =>
+        Promise.resolve({
+          completed: true,
+          summary: 'acme/myrepo#1002 merged. Autofix monitoring complete.',
+        }),
+    )
+    const checker = getChecker()
+    const result = await checker({
+      owner: 'acme',
+      repo: 'myrepo',
+      prNumber: 1002,
+    })
+    expect(result).toBe(
+      'acme/myrepo#1002 merged. Autofix monitoring complete.',
+    )
+  })
+
+  test('passes initialHeadSha through to checkPrAutofixOutcome', async () => {
+    const { checkPrAutofixOutcome } = await import('../prFetch.js')
+    const checkMock = checkPrAutofixOutcome as ReturnType<typeof mock>
+    checkMock.mockClear()
+    checkMock.mockImplementationOnce(() => Promise.resolve({ completed: false }))
+    const checker = getChecker()
+    await checker({
+      owner: 'acme',
+      repo: 'myrepo',
+      prNumber: 1003,
+      initialHeadSha: 'sha-baseline-xyz',
+    })
+    expect(checkMock).toHaveBeenCalledWith({
+      owner: 'acme',
+      repo: 'myrepo',
+      prNumber: 1003,
+      initialHeadSha: 'sha-baseline-xyz',
+    })
+  })
+
+  test('throttles back-to-back calls for the same PR within CHECK_INTERVAL_MS', async () => {
+    const { checkPrAutofixOutcome } = await import('../prFetch.js')
+    const checkMock = checkPrAutofixOutcome as ReturnType<typeof mock>
+    checkMock.mockClear()
+    checkMock.mockImplementation(() => Promise.resolve({ completed: false }))
+    const checker = getChecker()
+    const meta = { owner: 'acme', repo: 'myrepo', prNumber: 1004 }
+    await checker(meta)
+    // Second call within the 5s throttle window must short-circuit to null
+    // without invoking the gh CLI layer again.
+    const callCountAfterFirst = checkMock.mock.calls.length
+    const result = await checker(meta)
+    expect(result).toBeNull()
+    expect(checkMock.mock.calls.length).toBe(callCountAfterFirst)
+  })
+
+  test('completionHook with metadata clears the throttle entry (re-launch can re-check immediately)', async () => {
+    const { checkPrAutofixOutcome } = await import('../prFetch.js')
+    const checkMock = checkPrAutofixOutcome as ReturnType<typeof mock>
+    checkMock.mockClear()
+    checkMock.mockImplementation(() => Promise.resolve({ completed: false }))
+    const checker = getChecker()
+    const meta = { owner: 'acme', repo: 'myrepo', prNumber: 1005 }
+    await checker(meta) // populate throttle map
+
+    // Invoke the registered completion hook with the same metadata so the
+    // throttle entry is wiped, then verify the next checker call dispatches
+    // gh CLI again instead of short-circuiting.
+    const hookCalls = registerCompletionHookMock.mock.calls.filter(
+      c => c[0] === 'autofix-pr',
+    )
+    const hook = hookCalls[hookCalls.length - 1]?.[1] as (
+      id: string,
+      metadata?: unknown,
+    ) => void
+    hook('any-task-id', meta)
+
+    const callCountBefore = checkMock.mock.calls.length
+    await checker(meta)
+    expect(checkMock.mock.calls.length).toBe(callCountBefore + 1)
+  })
+
+  test('completionHook without metadata still clears the active monitor lock', async () => {
+    // Lock is set via callAutofixPr; hook then invoked with undefined metadata
+    // to exercise the `if (meta)` short-circuit branch (the lock-clear half
+    // still has to run regardless of metadata presence).
+    await callAutofixPr(onDone, makeContext(), '42')
+    expect(getActiveMonitor()).not.toBeNull()
+    const hookCalls = registerCompletionHookMock.mock.calls.filter(
+      c => c[0] === 'autofix-pr',
+    )
+    const hook = hookCalls[hookCalls.length - 1]?.[1] as (
+      id: string,
+      metadata?: unknown,
+    ) => void
+    hook('framework-task-id', undefined)
+    expect(getActiveMonitor()).toBeNull()
+  })
+})
+
 // Phase 3: content extractor wiring + initialMessage tag instruction
 describe('callAutofixPr · Phase 3 content extractor integration', () => {
   test('registerContentExtractor is called at module load with autofix-pr type', () => {
