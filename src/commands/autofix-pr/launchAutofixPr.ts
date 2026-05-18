@@ -15,6 +15,7 @@ import {
   getRemoteTaskSessionUrl,
   registerCompletionChecker,
   registerCompletionHook,
+  registerContentExtractor,
   registerRemoteAgentTask,
   type AutofixPrRemoteTaskMetadata,
   type BackgroundRemoteSessionPrecondition,
@@ -31,6 +32,7 @@ import {
   trySetActiveMonitor,
   updateActiveMonitor,
 } from './monitorState.js'
+import { extractAutofixResultFromLog } from './extractAutofixResult.js'
 import { parseAutofixArgs } from './parseArgs.js'
 import { checkPrAutofixOutcome, fetchPrHeadSha } from './prFetch.js'
 import { detectAutofixSkills, formatSkillsHint } from './skillDetect.js'
@@ -80,6 +82,13 @@ registerCompletionHook('autofix-pr', (taskId, metadata) => {
   const meta = metadata as AutofixPrRemoteTaskMetadata | undefined
   if (meta) lastCheckAt.delete(throttleKey(meta))
 })
+
+// Phase 3 content return: extract the <autofix-result> tag from the session
+// log so the local model sees the agent's structured outcome (commits
+// pushed, files changed, CI status) inline in the completion task-
+// notification — instead of just a file-path pointer. The framework falls
+// back to the generic notification if extraction returns null.
+registerContentExtractor('autofix-pr', log => extractAutofixResultFromLog(log))
 
 function makeErrorText(message: string, code: string): string {
   logEvent('tengu_autofix_pr_result', {
@@ -249,7 +258,23 @@ export const callAutofixPr: LocalJSXCommandCall = async (
     // 4.5 compose message
     const target = `${owner}/${repo}#${prNumber}`
     const branchName = `refs/pull/${prNumber}/head`
-    const initialMessage = `Auto-fix failing CI checks on PR #${prNumber} in ${owner}/${repo}.${skillsHint}`
+    const initialMessage = `Auto-fix failing CI checks on PR #${prNumber} in ${owner}/${repo}.${skillsHint}
+
+When you finish (or hit a blocker you can't recover from), output the following XML tag as your final message so the local user gets a structured summary:
+
+<autofix-result>
+  <pr-number>${prNumber}</pr-number>
+  <commits-pushed>
+    <commit sha="...">commit message</commit>
+  </commits-pushed>
+  <files-changed>
+    <file path="...">N changes</file>
+  </files-changed>
+  <ci-status>green | red | pending | unknown</ci-status>
+  <summary>One-sentence summary of what was fixed or why it could not be fixed.</summary>
+</autofix-result>
+
+If no fix was needed, omit <commits-pushed> and <files-changed> and explain in <summary>. If you only attempted partial work, list the commits you did push and explain the remainder in <summary>.`
 
     // 4.6 in-process teammate
     const teammate = createAutofixTeammate(initialMessage, target)
